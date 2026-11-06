@@ -191,4 +191,11 @@ class OfficeRoundTripTest {
         assertEquals(33 to 17, image("jpg", 33, 17).imageSizeOrNull())
         assertEquals(20 to 10, image("gif", 20, 10).imageSizeOrNull())
     }
+
+    @Test fun `truncated jpeg does not crash and gives no size`() {
+        val full = image("jpg", 33, 17)
+        assertEquals(33 to 17, full.imageSizeOrNull())
+        assertEquals(null, full.copyOf(7).imageSizeOrNull())
+        assertEquals(null, full.copyOf(10).imageSizeOrNull())
+    }
 }

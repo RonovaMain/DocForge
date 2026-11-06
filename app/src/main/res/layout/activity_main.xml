@@ -26,7 +26,7 @@
             android:textAppearance="?attr/textAppearanceBodyMedium" />
 
         <com.google.android.material.card.MaterialCardView
-            style="?attr/materialCardViewFilledStyle"
+            style="@style/Widget.Material3.CardView.Filled"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp">
@@ -79,7 +79,7 @@
             android:textAppearance="?attr/textAppearanceTitleMedium" />
 
         <com.google.android.material.textfield.TextInputLayout
-            style="?attr/textInputOutlinedStyle"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -109,7 +109,7 @@
             android:textAppearance="?attr/textAppearanceTitleMedium" />
 
         <com.google.android.material.textfield.TextInputLayout
-            style="?attr/textInputOutlinedStyle"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -132,7 +132,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCreate"
-            style="?attr/materialButtonOutlinedStyle"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"

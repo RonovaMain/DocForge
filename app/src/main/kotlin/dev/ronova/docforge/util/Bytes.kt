@@ -70,7 +70,8 @@ internal fun ByteArray.imageSizeOrNull(): Pair<Int, Int>? {
 
 private fun ByteArray.jpegSize(): Pair<Int, Int>? {
     var i = 2
-    while (i + 9 < size) {
+    // для чтения длины сегмента нужны байты i..i+3
+    while (i + 3 < size) {
         if (u8(i) != 0xFF) {
             i++
             continue
@@ -84,7 +85,8 @@ private fun ByteArray.jpegSize(): Pair<Int, Int>? {
                 if (length < 2) return null
                 // SOF0..SOF15, кроме DHT (C4), JPG (C8) и DAC (CC)
                 if (marker in 0xC0..0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) {
-                    return be16(i + 7) to be16(i + 5)
+                    // высота (i+5, i+6) и ширина (i+7, i+8); если файл обрезан — размера нет
+                    return if (i + 8 < size) be16(i + 7) to be16(i + 5) else null
                 }
                 i += 2 + length
             }
