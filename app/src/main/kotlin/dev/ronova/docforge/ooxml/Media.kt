@@ -10,7 +10,7 @@ private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "bmp", "tif", 
  * Дубликаты (по SHA-256) сохраняются один раз; аудио и видео из той же папки пропускаются.
  * [originOf] описывает, где найдена картинка.
  */
-fun OoxmlPackage.extractMedia(
+internal fun OoxmlPackage.extractMedia(
     prefix: String,
     baseName: String,
     originOf: (String) -> String,
