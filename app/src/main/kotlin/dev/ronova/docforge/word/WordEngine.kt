@@ -15,6 +15,7 @@ import dev.ronova.docforge.ooxml.EMU_PER_POINT
 import dev.ronova.docforge.ooxml.EmbeddedImage
 import dev.ronova.docforge.ooxml.Ns
 import dev.ronova.docforge.ooxml.OoxmlPackage
+import dev.ronova.docforge.ooxml.extractMedia
 import dev.ronova.docforge.ooxml.RelType
 import dev.ronova.docforge.ooxml.XML_DECL
 import dev.ronova.docforge.ooxml.child
