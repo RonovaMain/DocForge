@@ -17,17 +17,41 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.awt.image.BufferedImage
-import java.io.ByteArrayOutputStream
-import javax.imageio.ImageIO
 
 class OfficeRoundTripTest {
 
+    // Генерируем минимальные валидные заголовки картинок вручную байт в байт, чтобы не зависеть от java.awt
     private fun image(format: String, width: Int = 60, height: Int = 40): ByteArray {
-        System.setProperty("java.awt.headless", "true")
-        val out = ByteArrayOutputStream()
-        ImageIO.write(BufferedImage(width, height, BufferedImage.TYPE_INT_RGB), format, out)
-        return out.toByteArray()
+        return when (format.lowercase()) {
+            "png" -> {
+                // Сигнатура PNG + заголовок IHDR (где на позициях 16-23 лежат Width и Height)
+                val bytes = ByteArray(33)
+                System.arraycopy(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A), 0, bytes, 0, 8)
+                System.arraycopy(byteArrayOf(0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52), 0, bytes, 8, 8)
+                bytes[16] = (width shr 24).toByte(); bytes[17] = (width shr 16).toByte()
+                bytes[18] = (width shr 8).toByte();  bytes[19] = width.toByte()
+                bytes[20] = (height shr 24).toByte(); bytes[21] = (height shr 16).toByte()
+                bytes[22] = (height shr 8).toByte();  bytes[23] = height.toByte()
+                bytes
+            }
+            "gif" -> {
+                // Сигнатура GIF89a + логический экран (Ширина и Высота в Little-Endian на позициях 6-9)
+                val bytes = ByteArray(10)
+                System.arraycopy(byteArrayOf(0x47, 0x49, 0x46, 0x38, 0x39, 0x61), 0, bytes, 0, 6)
+                bytes[6] = width.toByte();  bytes[7] = (width shr 8).toByte()
+                bytes[8] = height.toByte(); bytes[9] = (height shr 8).toByte()
+                bytes
+            }
+            "jpg", "jpeg" -> {
+                // Маркер SOI + маркер SOF0 (размеры на позициях 5-8 в Big-Endian: сначала высота, потом ширина)
+                val bytes = ByteArray(9)
+                System.arraycopy(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xC0.toByte(), 0x00, 0x09, 0x08), 0, bytes, 0, 7)
+                bytes[5] = (height shr 8).toByte(); bytes[6] = height.toByte()
+                bytes[7] = (width shr 8).toByte();  bytes[8] = width.toByte()
+                bytes
+            }
+            else -> ByteArray(0)
+        }
     }
 
     private val template = NewDocument(
@@ -122,7 +146,7 @@ class OfficeRoundTripTest {
         assertEquals(listOf("", "Hello {{name}}", "42", "TRUE"), before.rows[2])
 
         val result = engine.replaceText(pkg.toByteArray(), mapOf("{{name}}" to "Bob"))
-        assertEquals(2, result.count) // одна общая строка, на неё ссылаются две ячейки
+        assertEquals(2, result.count) 
         assertEquals("Hello Bob", engine.readSheets(result.bytes).single().rows[0][0])
     }
 
