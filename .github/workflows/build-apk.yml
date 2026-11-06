@@ -1,0 +1,93 @@
+name: Build release APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ "v*" ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # нужно только для публикации релиза по тегу v*
+
+    # Секреты подписи (Settings -> Secrets and variables -> Actions):
+    #   KEYSTORE_BASE64   keystore, закодированный в base64 (без переносов строк)
+    #   KEYSTORE_PASSWORD пароль хранилища
+    #   KEY_ALIAS         алиас ключа
+    #   KEY_PASSWORD      пароль ключа
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check signing secrets
+        run: |
+          missing=""
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты репозитория:$missing. Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+
+      - name: Decode keystore
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK signature
+        run: |
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --verbose "$apk" | head -n 8
+          mkdir -p dist
+          cp "$apk" dist/DocForge-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocForge-release-apk
+          path: dist/DocForge-release.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/DocForge-release.apk
+
+      # Тесты идут после загрузки APK: упавший тест не лишает вас готового файла
+      - name: Unit tests
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests
+          if-no-files-found: ignore

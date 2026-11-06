@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Лист с «вырезанными» строками текста (even-odd) -->
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M41,30 H57 L69,42 V74 A6,6 0 0 1 63,80 H41 A6,6 0 0 1 35,74 V36 A6,6 0 0 1 41,30 Z M41,49 H63 V52 H41 Z M41,57 H63 V60 H41 Z M41,65 H54 V68 H41 Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M72,26 Q73.4,32.6 80,34 Q73.4,35.4 72,42 Q70.6,35.4 64,34 Q70.6,32.6 72,26 Z" />
+</vector>

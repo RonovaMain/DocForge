@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Лист документа со срезанным правым верхним углом -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M41,30 H57 L69,42 V74 A6,6 0 0 1 63,80 H41 A6,6 0 0 1 35,74 V36 A6,6 0 0 1 41,30 Z" />
+    <!-- Строки текста -->
+    <path
+        android:fillColor="#FFE58FB5"
+        android:pathData="M41,49 H63 A1.5,1.5 0 0 1 63,52 H41 A1.5,1.5 0 0 1 41,49 Z" />
+    <path
+        android:fillColor="#FFE58FB5"
+        android:pathData="M41,57 H63 A1.5,1.5 0 0 1 63,60 H41 A1.5,1.5 0 0 1 41,57 Z" />
+    <path
+        android:fillColor="#FFE58FB5"
+        android:pathData="M41,65 H54 A1.5,1.5 0 0 1 54,68 H41 A1.5,1.5 0 0 1 41,65 Z" />
+    <!-- Четырёхконечная звезда в срезанном углу -->
+    <path
+        android:fillColor="#FFFFF3B0"
+        android:pathData="M72,26 Q73.4,32.6 80,34 Q73.4,35.4 72,42 Q70.6,35.4 64,34 Q70.6,32.6 72,26 Z" />
+</vector>

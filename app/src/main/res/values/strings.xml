@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DocForge</string>
+    <string name="subtitle">Чтение, замена текста, картинки и водяные знаки для DOCX, XLSX, PPTX и PDF</string>
+
+    <string name="pick_file">Выбрать файл</string>
+    <string name="no_file">Файл не выбран</string>
+    <string name="file_info">%1$s\n%2$s · %3$s</string>
+
+    <string name="action_text">Текст</string>
+    <string name="action_info">Свойства</string>
+    <string name="action_images">Извлечь картинки (ZIP)</string>
+
+    <string name="replace_title">Замена текста (DOCX, XLSX, PPTX)</string>
+    <string name="replace_hint">Замены: по одной на строку, ключ=значение</string>
+    <string name="replace_action">Заменить и сохранить</string>
+
+    <string name="watermark_title">Водяной знак (PDF)</string>
+    <string name="watermark_hint">Текст водяного знака</string>
+    <string name="watermark_action">Добавить и сохранить</string>
+
+    <string name="create_sample">Создать пример документа…</string>
+    <string name="create_sample_title">Какой формат создать?</string>
+
+    <string name="output_placeholder">Здесь появится результат</string>
+    <string name="error_prefix">Ошибка: %1$s</string>
+    <string name="err_no_file">Сначала выберите файл</string>
+    <string name="err_cannot_open">Не удалось открыть файл</string>
+    <string name="err_cannot_save">Не удалось сохранить файл</string>
+    <string name="err_bad_replacement">Строка «%1$s» не похожа на ключ=значение</string>
+    <string name="err_empty_replacements">Введите хотя бы одну замену</string>
+    <string name="err_empty_watermark">Введите текст водяного знака</string>
+    <string name="msg_replaced">Замен: %1$d</string>
+    <string name="msg_nothing_replaced">Совпадений не найдено — файл не изменён</string>
+    <string name="msg_no_images">В документе нет картинок</string>
+    <string name="msg_images_found">Картинок: %1$d</string>
+    <string name="msg_saved">Сохранено: %1$s</string>
+    <string name="msg_truncated">…\n(показаны первые %1$d символов из %2$d)</string>
+    <string name="msg_empty_text">В документе нет текста</string>
+</resources>

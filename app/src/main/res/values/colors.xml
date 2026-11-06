@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Запасная палитра для Android 8–11 (на Android 12+ используются цвета обоев — Material You) -->
+    <color name="brand_primary">#B03A6F</color>
+    <color name="brand_on_primary">#FFFFFF</color>
+    <color name="brand_primary_container">#FFD9E6</color>
+    <color name="brand_on_primary_container">#3E001D</color>
+</resources>
