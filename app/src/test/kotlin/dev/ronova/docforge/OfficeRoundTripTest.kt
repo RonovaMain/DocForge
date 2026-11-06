@@ -27,13 +27,14 @@ class OfficeRoundTripTest {
                 val bytes = ByteArray(33)
                 // Сигнатура PNG
                 System.arraycopy(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A), 0, bytes, 0, 8)
-                // Длина IHDR (13 байт) + маркер IHDR
+                // Маркер блока IHDR
                 System.arraycopy(byteArrayOf(0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52), 0, bytes, 8, 8)
-                // Запись Width и Height в Big-Endian (байты 16-19 и 20-23)
+                // Ширина в Big-Endian (байты 16-19)
                 bytes[16] = (width shr 24).toByte()
                 bytes[17] = (width shr 16).toByte()
                 bytes[18] = (width shr 8).toByte()
                 bytes[19] = width.toByte()
+                // Высота в Big-Endian (байты 20-23)
                 bytes[20] = (height shr 24).toByte()
                 bytes[21] = (height shr 16).toByte()
                 bytes[22] = (height shr 8).toByte()
@@ -44,26 +45,26 @@ class OfficeRoundTripTest {
                 val bytes = ByteArray(10)
                 // Сигнатура GIF89a
                 System.arraycopy(byteArrayOf(0x47, 0x49, 0x46, 0x38, 0x39, 0x61), 0, bytes, 0, 6)
-                // Запись Width и Height в Little-Endian (байты 6-7 и 8-9)
+                // Ширина в Little-Endian (байты 6-7)
                 bytes[6] = width.toByte()
                 bytes[7] = (width shr 8).toByte()
+                // Высота в Little-Endian (байты 8-9)
                 bytes[8] = height.toByte()
                 bytes[9] = (height shr 8).toByte()
                 bytes
             }
             "jpg", "jpeg" -> {
-                val bytes = ByteArray(9)
-                // SOI маркер + SOF0 маркер + длина блока
+                val bytes = ByteArray(11)
+                // SOI маркер + SOF0 маркер + длина блока (0x00, 0x09) + точность (0x08)
                 System.arraycopy(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xC0.toByte(), 0x00, 0x09, 0x08), 0, bytes, 0, 7)
-                // Запись Height и Width в Big-Endian (В JPEG сначала Высота, потом Ширина!)
+                // В JPEG сначала Высота, потом Ширина в Big-Endian!
+                // Высота (байты 7-8)
                 bytes[7] = (height shr 8).toByte()
                 bytes[8] = height.toByte()
-                // Нам нужно расширить массив, чтобы влезла ширина
-                val extendedBytes = ByteArray(11)
-                System.arraycopy(bytes, 0, extendedBytes, 0, 9)
-                extendedBytes[9] = (width shr 8).toByte()
-                extendedBytes[10] = width.toByte()
-                extendedBytes
+                // Ширина (байты 9-10)
+                bytes[9] = (width shr 8).toByte()
+                bytes[10] = width.toByte()
+                bytes
             }
             else -> ByteArray(0)
         }
