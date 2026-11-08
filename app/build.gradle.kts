@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.3.8"
     }
 
     // Подпись релиза включается только если заданы переменные окружения (так делает GitHub Actions).
@@ -66,9 +66,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
-
-    // PDF: Android-порт Apache PDFBox 2.x (PDFBox 3 и java.awt на Android не работают)
-    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     testImplementation("junit:junit:4.13.2")
 }

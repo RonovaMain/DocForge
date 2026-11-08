@@ -1,73 +1,103 @@
 package dev.ronova.docforge
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Shader
+import android.annotation.SuppressLint
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
-import android.text.format.Formatter
+import android.text.InputType
+import android.view.Gravity
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import dev.ronova.docforge.core.DocumentEngines
-import dev.ronova.docforge.core.DocumentFormat
-import dev.ronova.docforge.core.ExtractedImage
-import dev.ronova.docforge.core.ImageData
-import dev.ronova.docforge.core.MIME_DOCX
-import dev.ronova.docforge.core.MIME_PDF
-import dev.ronova.docforge.core.MIME_PPTX
-import dev.ronova.docforge.core.MIME_XLSX
-import dev.ronova.docforge.core.MIME_ZIP
-import dev.ronova.docforge.core.NewDocument
-import dev.ronova.docforge.core.ReplaceResult
+import com.google.android.material.snackbar.Snackbar
+import dev.ronova.docforge.core.DocException
+import dev.ronova.docforge.core.DocFormat
+import dev.ronova.docforge.core.Engines
 import dev.ronova.docforge.databinding.ActivityMainBinding
-import java.io.ByteArrayOutputStream
+import dev.ronova.docforge.html.Html
+import dev.ronova.docforge.zip.ZipPackage
+import java.io.ByteArrayInputStream
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import org.json.JSONObject
 
+/**
+ * Просмотрщик и редактор документов. Документ превращается в HTML (движки в пакетах core/ooxml/odf),
+ * который показывает WebView; PDF рисуется встроенным PdfRenderer и отдаётся в тот же WebView по страницам.
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var recents: RecentFiles
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
-    private val engines = DocumentEngines { assets.open(FONT_ASSET) }
 
-    private var source: SourceFile? = null
-    private var pending: PendingSave? = null
+    @Volatile
+    private var doc: OpenDoc? = null
+    private var editMode = false
 
-    private class SourceFile(val uri: Uri, val name: String, val format: DocumentFormat, val bytes: ByteArray) {
-        val baseName: String get() = name.substringBeforeLast('.', name)
+    private class OpenDoc(
+        var uri: Uri,
+        var name: String,
+        val format: DocFormat,
+        @Volatile var bytes: ByteArray,
+        val media: ZipPackage?,
+        val pdf: PdfSource?,
+    ) {
+        @Volatile
+        var dirty = false
     }
 
-    private class PendingSave(val bytes: ByteArray)
+    private class Loaded(val doc: OpenDoc, val html: String)
 
-    private val openDocument =
+    private val openPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) loadSource(uri)
-        }
-
-    // CreateDocument фиксирует MIME-тип при регистрации, поэтому по одному «сохраняльщику» на тип
-    private val savers: Map<String, ActivityResultLauncher<String>> =
-        listOf(MIME_DOCX, MIME_XLSX, MIME_PPTX, MIME_PDF, MIME_ZIP).associateWith { mime ->
-            registerForActivityResult(ActivityResultContracts.CreateDocument(mime)) { uri ->
-                if (uri != null) writePending(uri) else pending = null
+            if (uri != null) {
+                persistPermission(uri)
+                openUri(uri, fromRecent = false)
             }
         }
+
+    // CreateDocument фиксирует MIME-тип при регистрации, поэтому по одному «сохраняльщику» на формат
+    private val savers: Map<String, ActivityResultLauncher<String>> =
+        DocFormat.values().filter { it.isEditable }.associate { format ->
+            format.mime to registerForActivityResult(ActivityResultContracts.CreateDocument(format.mime)) { uri ->
+                if (uri != null) saveAs(uri)
+            }
+        }
+
+    // ------------------------------------------------------------------ жизненный цикл
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        setSupportActionBar(binding.toolbar)
+        recents = RecentFiles(this)
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
@@ -75,262 +105,417 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        binding.btnPick.setOnClickListener { openDocument.launch(arrayOf("*/*")) }
-        binding.btnText.setOnClickListener { onReadText() }
-        binding.btnInfo.setOnClickListener { onReadInfo() }
-        binding.btnImages.setOnClickListener { onExtractImages() }
-        binding.btnReplace.setOnClickListener { onReplace() }
-        binding.btnWatermark.setOnClickListener { onWatermark() }
-        binding.btnCreate.setOnClickListener { onCreateSample() }
+        binding.btnOpen.setOnClickListener { pickFile() }
+        binding.btnClearRecent.setOnClickListener {
+            recents.clear()
+            renderRecents()
+        }
+        configureWebView()
 
-        render()
-        // После пересоздания активности (поворот, смена темы) открываем тот же файл заново
-        savedInstanceState?.getString(KEY_URI)?.let { loadSource(Uri.parse(it)) }
-    }
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (doc != null) confirmDiscard { closeDocument() } else finish()
+                }
+            },
+        )
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        source?.let { outState.putString(KEY_URI, it.uri.toString()) }
+        renderRecents()
+        if (savedInstanceState == null) handleIntent(intent)
     }
 
     override fun onDestroy() {
         worker.shutdown()
+        doc?.pdf?.close()
+        binding.web.destroy()
         super.onDestroy()
     }
 
-    // ------------------------------------------------------------------ действия
+    // ------------------------------------------------------------------ меню
 
-    private fun onReadText() {
-        val src = requireSource() ?: return
-        work({ engines.forFormat(src.format).readText(src.bytes) }) { text ->
-            showOutput(text.ifBlank { getString(R.string.msg_empty_text) })
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.viewer, menu)
+        return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        val editable = doc?.format?.isEditable == true
+        menu.findItem(R.id.action_edit).apply {
+            isVisible = editable
+            isChecked = editMode
         }
+        menu.findItem(R.id.action_save).isVisible = editable
+        menu.findItem(R.id.action_save_as).isVisible = editable
+        menu.findItem(R.id.action_close).isVisible = doc != null
+        return super.onPrepareOptionsMenu(menu)
     }
 
-    private fun onReadInfo() {
-        val src = requireSource() ?: return
-        work({ engines.forFormat(src.format).readMetadata(src.bytes).describe() }) { showOutput(it) }
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.action_open -> pickFile()
+            R.id.action_edit -> {
+                editMode = !editMode
+                item.isChecked = editMode
+                applyEditMode()
+            }
+            R.id.action_save -> save()
+            R.id.action_save_as -> doc?.let { savers[it.format.mime]?.launch(it.name) }
+            R.id.action_close -> confirmDiscard { closeDocument() }
+            else -> return super.onOptionsItemSelected(item)
+        }
+        return true
     }
 
-    private fun onExtractImages() {
-        val src = requireSource() ?: return
-        work({
-            val images = engines.forFormat(src.format).extractImages(src.bytes, src.baseName)
-            images to (if (images.isEmpty()) null else zip(images))
-        }) { (images, archive) ->
-            if (archive == null) {
-                showOutput(getString(R.string.msg_no_images))
-            } else {
-                showOutput(
-                    getString(R.string.msg_images_found, images.size) + "\n" +
-                        images.joinToString("\n") { it.describe() }
-                )
-                startSave(archive, "${src.baseName}_images.zip", MIME_ZIP)
+    private fun applyEditMode() {
+        binding.web.evaluateJavascript("if(window.setEditing){setEditing($editMode)}", null)
+        supportActionBar?.subtitle = if (editMode) getString(R.string.edit_mode_on) else null
+    }
+
+    // ------------------------------------------------------------------ WebView
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun configureWebView() {
+        val web = binding.web
+        web.settings.apply {
+            javaScriptEnabled = true // нужен только нашему скрипту страницы (правка, вкладки, масштаб слайдов)
+            allowFileAccess = false
+            allowContentAccess = false
+            domStorageEnabled = false
+            cacheMode = WebSettings.LOAD_NO_CACHE
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            useWideViewPort = true
+        }
+        web.setBackgroundColor(0xFFE6E7EB.toInt())
+        web.addJavascriptInterface(Bridge(), "Android")
+        web.webViewClient = object : WebViewClient() {
+            // Ссылки внутри документа не открываем: страница — это только отображение файла
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
+
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                serve(request.url)
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                view.evaluateJavascript("if(window.setEditing){setEditing($editMode)}", null)
             }
         }
     }
 
-    private fun onReplace() {
-        val src = requireSource() ?: return
-        if (src.format == DocumentFormat.PDF) {
-            showError(UnsupportedOperationException("Замена текста не поддерживается для PDF — используйте водяной знак"))
-            return
+    /** Картинки документа и страницы PDF отдаются WebView напрямую из памяти. Всё остальное блокируется. */
+    private fun serve(url: Uri): WebResourceResponse? {
+        if (url.host != "docforge.local") return blocked()
+        val d = doc ?: return blocked()
+        val path = url.path.orEmpty()
+        if (path.startsWith("/m/")) {
+            val name = path.removePrefix("/m/")
+            val bytes = d.media?.get(name)
+            val mime = Html.imageMime(name)
+            return if (bytes != null && mime != null) WebResourceResponse(mime, null, ByteArrayInputStream(bytes)) else blocked()
         }
-        val replacements = try {
-            parseReplacements(binding.etReplace.text?.toString().orEmpty())
-        } catch (e: IllegalArgumentException) {
-            showError(e)
-            return
+        if (path.startsWith("/pdf/")) {
+            val index = path.removePrefix("/pdf/").toIntOrNull() ?: return blocked()
+            val width = (resources.displayMetrics.widthPixels * 2).coerceIn(1080, 2200)
+            val jpeg = try {
+                d.pdf?.renderJpeg(index, width)
+            } catch (e: Exception) {
+                null
+            }
+            return if (jpeg != null) WebResourceResponse("image/jpeg", null, ByteArrayInputStream(jpeg)) else blocked()
         }
-        work({ engines.textReplacer(src.format).replaceText(src.bytes, replacements) }) { result: ReplaceResult ->
-            if (result.count == 0) {
-                showOutput(getString(R.string.msg_nothing_replaced))
-            } else {
-                showOutput(getString(R.string.msg_replaced, result.count))
-                startSave(result.bytes, "${src.baseName}_edited.${src.format.extension}", src.format.mime)
+        return blocked()
+    }
+
+    private fun blocked(): WebResourceResponse =
+        WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+
+    /** Мост «страница -> приложение»: нажатие на редактируемый элемент в режиме правки. */
+    inner class Bridge {
+        @JavascriptInterface
+        fun edit(id: String) {
+            runOnUiThread { requestEdit(id) }
+        }
+    }
+
+    // ------------------------------------------------------------------ открытие
+
+    private fun pickFile() = confirmDiscard { openPicker.launch(arrayOf("*/*")) }
+
+    private fun handleIntent(intent: Intent?) {
+        val i = intent ?: return
+        val uri = when (i.action) {
+            Intent.ACTION_VIEW -> i.data
+            Intent.ACTION_SEND -> streamExtra(i)
+            else -> null
+        } ?: return
+        openUri(uri, fromRecent = false)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun streamExtra(i: Intent): Uri? =
+        if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else i.getParcelableExtra(Intent.EXTRA_STREAM)
+
+    private fun persistPermission(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        } catch (e: Exception) {
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e2: Exception) {
+                // разрешение действует, пока приложение запущено — этого достаточно
             }
         }
     }
 
-    private fun onWatermark() {
-        val src = requireSource() ?: return
-        if (src.format != DocumentFormat.PDF) {
-            showError(UnsupportedOperationException("Водяной знак поддерживается только для PDF"))
-            return
-        }
-        val text = binding.etWatermark.text?.toString().orEmpty().trim()
-        if (text.isEmpty()) {
-            showError(IllegalArgumentException(getString(R.string.err_empty_watermark)))
-            return
-        }
-        work({ engines.pdf.addWatermark(src.bytes, text) }) { bytes ->
-            startSave(bytes, "${src.baseName}_watermark.pdf", MIME_PDF)
-        }
-    }
-
-    private fun onCreateSample() {
-        val formats = DocumentFormat.entries
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.create_sample_title)
-            .setItems(formats.map { it.title + " (." + it.extension + ")" }.toTypedArray()) { _, which ->
-                val format = formats[which]
-                work({ engines.creator(format).create(sampleDocument()) }) { bytes ->
-                    startSave(bytes, "sample.${format.extension}", format.mime)
+    private fun openUri(uri: Uri, fromRecent: Boolean) {
+        work(
+            task = { load(uri) },
+            onDone = { loaded -> show(loaded) },
+            onError = { e ->
+                if (fromRecent) {
+                    recents.remove(uri)
+                    renderRecents()
+                    snack(getString(R.string.recent_unavailable))
+                } else {
+                    showError(e)
                 }
-            }
-            .show()
+            },
+        )
     }
 
-    // ------------------------------------------------------------------ файлы
-
-    private fun loadSource(uri: Uri) {
-        work({
-            val name = displayName(uri) ?: "document"
-            val format = DocumentFormat.fromFileName(name)
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: error(getString(R.string.err_cannot_open))
-            SourceFile(uri, name, format, bytes)
-        }) { loaded ->
-            source = loaded
-            render()
-            showOutput(getString(R.string.output_placeholder))
+    private fun load(uri: Uri): Loaded {
+        val name = displayName(uri) ?: uri.lastPathSegment ?: "document"
+        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw DocException(getString(R.string.err_open))
+        val format = DocFormat.detect(name, bytes)
+        if (format == DocFormat.PDF) {
+            val file = File(cacheDir, "current.pdf")
+            file.writeBytes(bytes)
+            val pdf = try {
+                PdfSource(file)
+            } catch (e: Exception) {
+                file.delete()
+                throw DocException(getString(R.string.err_pdf), e)
+            }
+            val html = Html.pdfPages(pdf.pageSizes())
+            return Loaded(OpenDoc(uri, name, format, ByteArray(0), null, pdf), html)
         }
+        val html = Engines.forFormat(format).renderHtml(bytes)
+        return Loaded(OpenDoc(uri, name, format, bytes, ZipPackage.read(bytes), null), html)
+    }
+
+    private fun show(loaded: Loaded) {
+        val old = doc
+        doc = loaded.doc
+        old?.pdf?.close()
+        editMode = false
+        binding.web.loadDataWithBaseURL(Html.BASE_URL, loaded.html, "text/html", "UTF-8", null)
+        binding.start.isVisible = false
+        binding.web.isVisible = true
+        supportActionBar?.title = loaded.doc.name
+        supportActionBar?.subtitle = null
+        recents.add(loaded.doc.uri, loaded.doc.name)
+        renderRecents()
+        invalidateOptionsMenu()
+    }
+
+    private fun closeDocument() {
+        val old = doc
+        doc = null
+        old?.pdf?.close()
+        editMode = false
+        binding.web.loadUrl("about:blank")
+        binding.web.isVisible = false
+        binding.start.isVisible = true
+        supportActionBar?.title = getString(R.string.app_name)
+        supportActionBar?.subtitle = null
+        invalidateOptionsMenu()
     }
 
     private fun displayName(uri: Uri): String? =
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
-
-    /** Запоминает результат и открывает системный диалог «Сохранить как». Запись — в [writePending]. */
-    private fun startSave(bytes: ByteArray, fileName: String, mime: String) {
-        pending = PendingSave(bytes)
-        savers.getValue(mime).launch(fileName)
-    }
-
-    private fun writePending(uri: Uri) {
-        val save = pending ?: return
-        pending = null
-        work({
-            val stream = contentResolver.openOutputStream(uri, "wt") ?: error(getString(R.string.err_cannot_save))
-            stream.use { it.write(save.bytes) }
-            displayName(uri) ?: uri.toString()
-        }) { name ->
-            appendOutput("\n" + getString(R.string.msg_saved, name))
-        }
-    }
-
-    private fun zip(images: List<ExtractedImage>): ByteArray {
-        val out = ByteArrayOutputStream()
-        ZipOutputStream(out).use { zip ->
-            for (image in images) {
-                zip.putNextEntry(ZipEntry(image.name))
-                zip.write(image.bytes)
-                zip.closeEntry()
+        try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
             }
+        } catch (e: Exception) {
+            null
         }
-        return out.toByteArray()
-    }
 
-    /** Строки вида `ключ=значение`; пустые строки пропускаются. */
-    private fun parseReplacements(input: String): Map<String, String> {
-        val result = LinkedHashMap<String, String>()
-        for (rawLine in input.lines()) {
-            val line = rawLine.trimEnd('\r')
-            if (line.isBlank()) continue
-            require('=' in line && !line.startsWith("=")) { getString(R.string.err_bad_replacement, line) }
-            result[line.substringBefore('=')] = line.substringAfter('=')
+    private fun renderRecents() {
+        val items = recents.list()
+        binding.recentList.removeAllViews()
+        binding.recentTitle.isVisible = items.isNotEmpty()
+        binding.btnClearRecent.isVisible = items.isNotEmpty()
+        for (entry in items) {
+            val button = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle)
+            button.text = entry.name
+            button.isAllCaps = false
+            button.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            params.topMargin = dp(6)
+            button.layoutParams = params
+            button.setOnClickListener { confirmDiscard { openUri(entry.uri, fromRecent = true) } }
+            binding.recentList.addView(button)
         }
-        require(result.isNotEmpty()) { getString(R.string.err_empty_replacements) }
-        return result
     }
 
-    private fun sampleDocument(): NewDocument = NewDocument(
-        title = "Отчёт за {{month}}",
-        paragraphs = listOf(
-            "Клиент: {{client}}",
-            "Сумма договора: {{amount}} руб.",
-            "Документ создан приложением DocForge.",
-        ),
-        table = listOf(
-            listOf("Позиция", "Кол-во", "Цена"),
-            listOf("Лицензия", "2", "1000"),
-            listOf("Поддержка", "1", "500"),
-        ),
-        images = listOf(ImageData("logo.png", sampleLogo())),
-    )
+    // ------------------------------------------------------------------ правка
 
-    /** PNG-градиент 240x120 в цветах приложения. */
-    private fun sampleLogo(): ByteArray {
-        val bitmap = Bitmap.createBitmap(240, 120, Bitmap.Config.ARGB_8888)
-        val paint = Paint()
-        paint.shader = LinearGradient(0f, 0f, 240f, 120f, 0xFF8EC5FF.toInt(), 0xFFF58BB8.toInt(), Shader.TileMode.CLAMP)
-        Canvas(bitmap).drawRect(0f, 0f, 240f, 120f, paint)
-        val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        return out.toByteArray()
+    private fun requestEdit(id: String) {
+        val d = doc ?: return
+        if (!d.format.isEditable) return
+        work(
+            task = { Engines.forFormat(d.format).textAt(d.bytes, id) },
+            onDone = { text -> if (text == null) snack(getString(R.string.err_not_found)) else showEditDialog(id, text) },
+        )
     }
 
-    // ------------------------------------------------------------------ UI
+    private fun showEditDialog(id: String, current: String) {
+        val input = EditText(this)
+        input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        input.setText(current)
+        input.setSelection(current.length)
+        input.maxLines = 10
+        val container = FrameLayout(this)
+        container.setPadding(dp(20), dp(8), dp(20), 0)
+        container.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.edit_dialog_title)
+            .setView(container)
+            .setPositiveButton(R.string.apply) { _, _ -> applyEdit(id, input.text.toString()) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
 
-    /** Выполняет [task] в фоне и отдаёт результат в [onDone] на главном потоке; ошибки показывает в окне результата. */
-    private fun <T> work(task: () -> T, onDone: (T) -> Unit) {
+    private fun applyEdit(id: String, text: String) {
+        val d = doc ?: return
+        work(
+            task = {
+                val engine = Engines.forFormat(d.format)
+                val updated = engine.editText(d.bytes, id, text)
+                updated to (engine.displayAt(updated, id) ?: text)
+            },
+            onDone = { (updated, shown) ->
+                d.bytes = updated
+                d.dirty = true
+                // Обновляем текст прямо на странице: перерисовка сбросила бы прокрутку и масштаб
+                binding.web.evaluateJavascript("if(window.setText){setText(${JSONObject.quote(id)},${JSONObject.quote(shown)})}", null)
+            },
+        )
+    }
+
+    // ------------------------------------------------------------------ сохранение
+
+    private fun write(uri: Uri, bytes: ByteArray) {
+        val stream = contentResolver.openOutputStream(uri, "wt") ?: throw DocException(getString(R.string.err_save))
+        stream.use { it.write(bytes) }
+    }
+
+    private fun save() {
+        val d = doc ?: return
+        val bytes = d.bytes
+        work(
+            task = { write(d.uri, bytes) },
+            onDone = {
+                d.dirty = false
+                snack(getString(R.string.saved, d.name))
+            },
+            onError = {
+                // Исходный файл часто открыт только для чтения (например, из почты) — предлагаем сохранить копию
+                snack(getString(R.string.save_fallback))
+                savers[d.format.mime]?.launch(d.name)
+            },
+        )
+    }
+
+    private fun saveAs(uri: Uri) {
+        val d = doc ?: return
+        val bytes = d.bytes
+        work(
+            task = {
+                write(uri, bytes)
+                displayName(uri) ?: d.name
+            },
+            onDone = { name ->
+                persistPermission(uri)
+                d.uri = uri
+                d.name = name
+                d.dirty = false
+                supportActionBar?.title = name
+                recents.add(uri, name)
+                renderRecents()
+                snack(getString(R.string.saved, name))
+            },
+        )
+    }
+
+    /** Если есть несохранённые правки — спрашивает, что с ними делать, и только потом выполняет [proceed]. */
+    private fun confirmDiscard(proceed: () -> Unit) {
+        val d = doc
+        if (d == null || !d.dirty) {
+            proceed()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.unsaved_title)
+            .setMessage(getString(R.string.unsaved_message, d.name))
+            .setPositiveButton(R.string.save) { _, _ ->
+                val bytes = d.bytes
+                work(
+                    task = { write(d.uri, bytes) },
+                    onDone = {
+                        d.dirty = false
+                        proceed()
+                    },
+                    onError = { savers[d.format.mime]?.launch(d.name) },
+                )
+            }
+            .setNegativeButton(R.string.discard) { _, _ ->
+                d.dirty = false
+                proceed()
+            }
+            .setNeutralButton(R.string.cancel, null)
+            .show()
+    }
+
+    // ------------------------------------------------------------------ вспомогательное
+
+    /** Выполняет [task] в фоне; результат или ошибка приходят на главном потоке. */
+    private fun <T> work(task: () -> T, onDone: (T) -> Unit, onError: (Throwable) -> Unit = { showError(it) }) {
         setBusy(true)
         worker.execute {
             val result = runCatching(task)
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 setBusy(false)
-                result.fold(onSuccess = onDone, onFailure = { showError(it) })
+                result.fold(onDone, onError)
             }
         }
     }
 
-    private fun requireSource(): SourceFile? {
-        val current = source
-        if (current == null) showError(IllegalStateException(getString(R.string.err_no_file)))
-        return current
-    }
-
-    private fun render() {
-        val src = source
-        binding.tvFile.text = if (src == null) {
-            getString(R.string.no_file)
-        } else {
-            getString(R.string.file_info, src.name, src.format.title, Formatter.formatShortFileSize(this, src.bytes.size.toLong()))
-        }
-        val hasFile = src != null
-        binding.btnText.isEnabled = hasFile
-        binding.btnInfo.isEnabled = hasFile
-        binding.btnImages.isEnabled = hasFile
-        binding.btnReplace.isEnabled = hasFile && src?.format != DocumentFormat.PDF
-        binding.btnWatermark.isEnabled = src?.format == DocumentFormat.PDF
-    }
-
     private fun setBusy(busy: Boolean) {
-        binding.progress.visibility = if (busy) android.view.View.VISIBLE else android.view.View.INVISIBLE
-    }
-
-    private fun showOutput(text: String) {
-        binding.tvOutput.text = if (text.length > MAX_SHOWN_CHARS) {
-            text.substring(0, MAX_SHOWN_CHARS) + getString(R.string.msg_truncated, MAX_SHOWN_CHARS, text.length)
-        } else {
-            text
-        }
-    }
-
-    private fun appendOutput(text: String) {
-        binding.tvOutput.append(text)
+        binding.progress.visibility = if (busy) View.VISIBLE else View.INVISIBLE
     }
 
     private fun showError(error: Throwable) {
-        val message = error.message ?: error.javaClass.simpleName
-        binding.tvOutput.text = getString(R.string.error_prefix, message)
+        val message = when (error) {
+            is OutOfMemoryError -> getString(R.string.err_too_big)
+            else -> error.message ?: error.javaClass.simpleName
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.error_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.ok, null)
+            .show()
     }
 
-    private companion object {
-        const val FONT_ASSET = "fonts/DejaVuSans.ttf"
-        const val KEY_URI = "source_uri"
-        const val MAX_SHOWN_CHARS = 100_000
-    }
+    private fun snack(text: String) = Snackbar.make(binding.root, text, Snackbar.LENGTH_SHORT).show()
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
