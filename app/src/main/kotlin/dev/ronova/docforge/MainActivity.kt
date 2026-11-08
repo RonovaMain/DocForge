@@ -195,8 +195,10 @@ class MainActivity : AppCompatActivity() {
             // Ссылки внутри документа не открываем: страница — это только отображение файла
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
 
+            // Сам документ (loadDataWithBaseURL) WebView тоже «запрашивает» по адресу базы — его пропускаем,
+            // иначе страница не откроется (ERR_HTTP_RESPONSE_CODE_FAILURE). Блокируем только подресурсы.
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                serve(request.url)
+                if (request.isForMainFrame) null else serve(request.url)
 
             override fun onPageFinished(view: WebView, url: String?) {
                 view.evaluateJavascript("if(window.setEditing){setEditing($editMode)}", null)
