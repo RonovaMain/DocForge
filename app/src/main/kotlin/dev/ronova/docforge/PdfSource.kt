@@ -12,7 +12,7 @@ import java.io.File
  * Страницы PDF через встроенный в Android PdfRenderer (без сторонних библиотек).
  * PdfRenderer не потокобезопасен — все обращения идут под общей блокировкой.
  */
-class PdfSource(private val file: File) : Closeable {
+class PdfSource(val file: File) : Closeable {
     private val descriptor: ParcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     private val renderer: PdfRenderer = try {
         PdfRenderer(descriptor)
@@ -55,7 +55,7 @@ class PdfSource(private val file: File) : Closeable {
                 bitmap.eraseColor(Color.WHITE)
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 val out = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
                 out.toByteArray()
             } finally {
                 bitmap.recycle()

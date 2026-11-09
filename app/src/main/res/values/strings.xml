@@ -33,4 +33,48 @@
     <string name="err_pdf">PDF повреждён или защищён паролем</string>
     <string name="err_not_found">Не удалось найти этот фрагмент — возможно, документ изменился</string>
     <string name="recent_unavailable">Файл недоступен — он удалён из списка</string>
+
+    <string name="menu_search">Поиск</string>
+    <string name="menu_goto">Перейти на страницу</string>
+    <string name="menu_save_images">Сохранить все картинки</string>
+    <string name="menu_share">Поделиться файлом</string>
+    <string name="menu_print">Печать / сохранить в PDF</string>
+    <string name="menu_settings">Настройки</string>
+
+    <string name="search_hint">Поиск в документе</string>
+    <string name="search_prev">Предыдущее совпадение</string>
+    <string name="search_next">Следующее совпадение</string>
+    <string name="search_close">Закрыть поиск</string>
+    <string name="search_none">Не найдено</string>
+    <string name="search_count">%1$d из %2$d</string>
+    <string name="search_count_pdf">%1$d из %2$d · стр. %3$d</string>
+    <string name="search_hit_item">стр. %1$d: %2$s</string>
+    <string name="search_hits_title">Найдено: %1$d</string>
+    <string name="search_no_text">В этом PDF нет текстового слоя (возможно, это скан), искать нечего</string>
+
+    <string name="goto_title">Перейти на страницу</string>
+    <string name="goto_hint">От 1 до %1$d</string>
+    <string name="goto_go">Перейти</string>
+
+    <string name="image_actions_title">Картинка</string>
+    <string name="image_save">Сохранить картинку</string>
+    <string name="pdf_page_save">Сохранить страницу как изображение</string>
+    <string name="pdf_page_images">Сохранить картинки со страницы</string>
+    <string name="no_images">Картинок не найдено</string>
+
+    <string name="settings_title">Настройки</string>
+    <string name="settings_display">Отображение документов</string>
+    <string name="settings_night">Тема документов</string>
+    <string name="night_auto">Авто</string>
+    <string name="night_light">Светлая</string>
+    <string name="night_dark">Тёмная</string>
+    <string name="settings_zoom">Размер текста: %1$d%%</string>
+    <string name="settings_zoom_hint">Действует для документов Word, Excel и LibreOffice; слайды и PDF не меняются</string>
+    <string name="settings_keep_on">Не выключать экран при чтении</string>
+    <string name="settings_about">О приложении</string>
+    <string name="about_desc">Просмотр и правка PDF, Word, Excel, PowerPoint и LibreOffice без интернета</string>
+    <string name="about_author">Создатель: RonovaDev</string>
+    <string name="about_version">Версия %1$s</string>
+    <string name="about_github">Мой GitHub</string>
+    <string name="err_no_browser">Не найдено приложение, чтобы открыть ссылку</string>
 </resources>

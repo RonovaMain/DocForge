@@ -252,6 +252,26 @@ public class OfficeEditTest {
     // ------------------------------------------------------------------ общее
 
     @Test
+    public void pdfWrapperHasLazyPagesAndPageTracking() {
+        List<int[]> sizes = new ArrayList<>();
+        sizes.add(new int[]{595, 842});
+        sizes.add(new int[]{842, 595});
+        String html = dev.ronova.docforge.html.Html.pdfPages(sizes);
+        assertTrue(html.contains("src=\"https://docforge.local/pdf/0\""));
+        assertTrue(html.contains("src=\"https://docforge.local/pdf/1\""));
+        assertTrue(html.contains("class=\"pdfpage\" loading=\"lazy\" width=\"595\" height=\"842\""));
+        assertTrue(html.contains("window.gotoPage"));
+        assertTrue(html.contains("window.setNight"));
+    }
+
+    @Test
+    public void slideAndTextPagesCarryNightModeAndSlidesCarryPageTracking() {
+        String text = Engines.forFormat(DocFormat.DOCX).renderHtml(docx("<w:p/>"));
+        assertTrue(text.contains("window.setNight"));
+        assertFalse(text.contains("window.gotoPage"));
+    }
+
+    @Test
     public void formatIsDetectedByContentThenByName() {
         assertEquals(DocFormat.DOCX, DocFormat.detect("whatever.bin", docx("<w:p/>")));
         assertEquals(DocFormat.XLSX, DocFormat.detect("x", xlsx()));

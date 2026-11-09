@@ -128,7 +128,9 @@ public final class Html {
     // ------------------------------------------------------------------ страница
 
     private static final String BASE_CSS =
-            "*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}"
+            "*{box-sizing:border-box}html{-webkit-text-size-adjust:100%;background:#e6e7eb}"
+            + "html.night{filter:invert(1) hue-rotate(180deg)}"
+            + "html.night .page img,html.night .sh img{filter:invert(1) hue-rotate(180deg)}"
             + "body{margin:0;background:#e6e7eb;font-family:sans-serif;color:#000}"
             + ".editing [data-id]{outline:1px dashed rgba(90,110,255,.7);outline-offset:1px;cursor:pointer}"
             + "p:empty:before{content:'\\200b'}";
@@ -181,6 +183,7 @@ public final class Html {
 
     private static final String COMMON_JS =
             "var editing=false;"
+            + "window.setNight=function(on){document.documentElement.classList.toggle('night',!!on);};"
             + "window.setEditing=function(on){editing=!!on;document.body.classList.toggle('editing',editing);};"
             + "window.setText=function(id,t){var e=document.querySelector('[data-id=\"'+id+'\"]');if(e){e.textContent=t;}};"
             + "document.addEventListener('click',function(ev){if(!editing){return;}var n=ev.target;"
@@ -193,6 +196,21 @@ public final class Html {
             + "for(var k=0;k<s.length;k++){s[k].style.display=k===i?'block':'none';b[k].className=k===i?'on':'';}};"
             + "var tb=document.querySelectorAll('.tabs button');"
             + "for(var q=0;q<tb.length;q++){(function(n){tb[n].addEventListener('click',function(){window.showSheet(n);});})(q);}";
+
+    /** Нумерация страниц: слайды и страницы PDF. Сообщает приложению текущую страницу и умеет прокручивать к нужной. */
+    private static final String PAGE_JS =
+            "var els=document.querySelectorAll('.pdfpage,.slidebox'),total=els.length,lastPage=0;"
+            + "function curPage(){var vh=document.documentElement.clientHeight,best=0,bestVis=-1;"
+            + "for(var i=0;i<total;i++){var r=els[i].getBoundingClientRect();"
+            + "var vis=Math.min(r.bottom,vh)-Math.max(r.top,0);if(vis>bestVis){bestVis=vis;best=i;}"
+            + "if(r.top>vh){break;}}"
+            + "if(window.pageYOffset+vh>=document.documentElement.scrollHeight-2){return total;}return best+1;}"
+            + "function reportPage(){if(!total){return;}var c=curPage();if(c!==lastPage){lastPage=c;"
+            + "if(window.Android&&window.Android.page){window.Android.page(c,total);}}}"
+            + "window.addEventListener('scroll',reportPage,{passive:true});window.addEventListener('resize',reportPage);"
+            + "window.gotoPage=function(n){if(!total){return;}var i=Math.max(1,Math.min(total,n))-1;"
+            + "window.scrollTo(0,els[i].getBoundingClientRect().top+window.pageYOffset);};"
+            + "reportPage();";
 
     private static final String SLIDE_JS =
             "function fit(){var bs=document.querySelectorAll('.slidebox');"
@@ -211,7 +229,7 @@ public final class Html {
         switch (kind) {
             case TEXT: css += TEXT_CSS; break;
             case SHEET: css += SHEET_CSS; js += SHEET_JS; break;
-            case SLIDES: css += SLIDE_CSS; js += SLIDE_JS; break;
+            case SLIDES: css += SLIDE_CSS; js += SLIDE_JS + PAGE_JS; break;
             default: break;
         }
         return "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
@@ -228,14 +246,18 @@ public final class Html {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
                 .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-                .append("<style>body{margin:0;background:#c9cbd1}img{display:block;width:100%;height:auto;margin:0 0 6px;background:#fff}</style>")
+                .append("<style>html{background:#c9cbd1}body{margin:0}html.night{filter:invert(1) hue-rotate(180deg)}")
+                .append("img{display:block;width:100%;height:auto;margin:0 0 6px;background:#fff}</style>")
                 .append("</head><body>");
         for (int i = 0; i < sizes.size(); i++) {
             int[] s = sizes.get(i);
-            sb.append("<img loading=\"lazy\" width=\"").append(s[0]).append("\" height=\"").append(s[1])
+            sb.append("<img class=\"pdfpage\" loading=\"lazy\" width=\"").append(s[0]).append("\" height=\"").append(s[1])
                     .append("\" src=\"").append(PDF_PREFIX).append(i).append("\" alt=\"\">");
         }
-        sb.append("</body></html>");
+        sb.append("<script>(function(){")
+                .append("window.setNight=function(on){document.documentElement.classList.toggle('night',!!on);};")
+                .append(PAGE_JS)
+                .append("})();</script></body></html>");
         return sb.toString();
     }
 }

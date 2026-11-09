@@ -1,10 +1,14 @@
 package dev.ronova.docforge
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.print.PrintAttributes
+import android.print.PrintManager
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.view.Gravity
@@ -12,6 +16,9 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -26,10 +33,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
+import androidx.core.widget.doAfterTextChanged
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
@@ -40,9 +49,12 @@ import dev.ronova.docforge.databinding.ActivityMainBinding
 import dev.ronova.docforge.html.Html
 import dev.ronova.docforge.zip.ZipPackage
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.json.JSONObject
 
 /**
@@ -59,6 +71,12 @@ class MainActivity : AppCompatActivity() {
     private var doc: OpenDoc? = null
     private var editMode = false
 
+    // нумерация страниц (PDF и слайды) и поиск
+    private var pageTotal = 0
+    private var pdfHits: List<PdfTools.Hit> = emptyList()
+    private var pdfHitIndex = -1
+    private var pendingExport: Export? = null
+
     private class OpenDoc(
         var uri: Uri,
         var name: String,
@@ -66,12 +84,15 @@ class MainActivity : AppCompatActivity() {
         @Volatile var bytes: ByteArray,
         val media: ZipPackage?,
         val pdf: PdfSource?,
+        val tools: PdfTools?,
     ) {
         @Volatile
         var dirty = false
     }
 
     private class Loaded(val doc: OpenDoc, val html: String)
+
+    private class Export(val bytes: ByteArray, val name: String, val mime: String)
 
     private val openPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -81,12 +102,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    // CreateDocument фиксирует MIME-тип при регистрации, поэтому по одному «сохраняльщику» на формат
+    // CreateDocument фиксирует MIME-тип при регистрации, поэтому по одному «сохраняльщику» на тип
     private val savers: Map<String, ActivityResultLauncher<String>> =
         DocFormat.values().filter { it.isEditable }.associate { format ->
             format.mime to registerForActivityResult(ActivityResultContracts.CreateDocument(format.mime)) { uri ->
                 if (uri != null) saveAs(uri)
             }
+        }
+
+    private val exportSavers: Map<String, ActivityResultLauncher<String>> =
+        EXPORT_MIMES.associateWith { mime ->
+            registerForActivityResult(ActivityResultContracts.CreateDocument(mime)) { uri -> onExportTarget(uri) }
         }
 
     // ------------------------------------------------------------------ жизненный цикл
@@ -110,13 +136,19 @@ class MainActivity : AppCompatActivity() {
             recents.clear()
             renderRecents()
         }
+        binding.pageIndicator.setOnClickListener { showGotoDialog() }
+        setupSearch()
         configureWebView()
 
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (doc != null) confirmDiscard { closeDocument() } else finish()
+                    when {
+                        binding.searchBar.isVisible -> closeSearch()
+                        doc != null -> confirmDiscard { closeDocument() }
+                        else -> finish()
+                    }
                 }
             },
         )
@@ -125,11 +157,35 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null) handleIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        applySettings()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applySettings()
+    }
+
     override fun onDestroy() {
         worker.shutdown()
         doc?.pdf?.close()
         binding.web.destroy()
         super.onDestroy()
+    }
+
+    /** Настройки из экрана «Настройки»: тема документа, размер текста, «не гасить экран». */
+    private fun applySettings() {
+        val settings = AppSettings(this)
+        val kind = doc?.format?.kind
+        binding.web.settings.textZoom =
+            if (kind == DocFormat.Kind.TEXT || kind == DocFormat.Kind.SHEET) settings.textZoom else 100
+        if (settings.keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        binding.web.evaluateJavascript("if(window.setNight){setNight(${settings.isNight()})}", null)
     }
 
     // ------------------------------------------------------------------ меню
@@ -140,20 +196,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        val editable = doc?.format?.isEditable == true
+        val d = doc
+        val editable = d?.format?.isEditable == true
+        menu.findItem(R.id.action_search).isVisible = d != null
         menu.findItem(R.id.action_edit).apply {
             isVisible = editable
             isChecked = editMode
         }
         menu.findItem(R.id.action_save).isVisible = editable
         menu.findItem(R.id.action_save_as).isVisible = editable
-        menu.findItem(R.id.action_close).isVisible = doc != null
+        menu.findItem(R.id.action_goto).isVisible = pageTotal > 1
+        menu.findItem(R.id.action_save_images).isVisible = d != null
+        menu.findItem(R.id.action_share).isVisible = d != null
+        menu.findItem(R.id.action_print).isVisible = d != null && d.format != DocFormat.PDF
+        menu.findItem(R.id.action_close).isVisible = d != null
         return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.action_open -> pickFile()
+            R.id.action_search -> openSearch()
             R.id.action_edit -> {
                 editMode = !editMode
                 item.isChecked = editMode
@@ -161,6 +224,11 @@ class MainActivity : AppCompatActivity() {
             }
             R.id.action_save -> save()
             R.id.action_save_as -> doc?.let { savers[it.format.mime]?.launch(it.name) }
+            R.id.action_goto -> showGotoDialog()
+            R.id.action_save_images -> saveAllImages()
+            R.id.action_share -> share()
+            R.id.action_print -> printDocument()
+            R.id.action_settings -> startActivity(Intent(this, SettingsActivity::class.java))
             R.id.action_close -> confirmDiscard { closeDocument() }
             else -> return super.onOptionsItemSelected(item)
         }
@@ -178,7 +246,7 @@ class MainActivity : AppCompatActivity() {
     private fun configureWebView() {
         val web = binding.web
         web.settings.apply {
-            javaScriptEnabled = true // нужен только нашему скрипту страницы (правка, вкладки, масштаб слайдов)
+            javaScriptEnabled = true // нужен только нашему скрипту страницы (правка, вкладки, масштаб слайдов, номера страниц)
             allowFileAccess = false
             allowContentAccess = false
             domStorageEnabled = false
@@ -191,6 +259,28 @@ class MainActivity : AppCompatActivity() {
         }
         web.setBackgroundColor(0xFFE6E7EB.toInt())
         web.addJavascriptInterface(Bridge(), "Android")
+        web.setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+            if (doc?.format != DocFormat.PDF && binding.searchBar.isVisible) {
+                binding.searchCount.text = if (numberOfMatches == 0) {
+                    getString(R.string.search_none)
+                } else {
+                    getString(R.string.search_count, activeMatchOrdinal + 1, numberOfMatches)
+                }
+            }
+        }
+        // Долгое нажатие на картинку документа или страницу PDF — меню «Сохранить»
+        web.setOnLongClickListener { view ->
+            val hit = (view as WebView).hitTestResult
+            val extra = hit.extra
+            if (extra != null &&
+                (hit.type == WebView.HitTestResult.IMAGE_TYPE || hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)
+            ) {
+                onImageLongPress(extra)
+                true
+            } else {
+                false
+            }
+        }
         web.webViewClient = object : WebViewClient() {
             // Ссылки внутри документа не открываем: страница — это только отображение файла
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
@@ -202,6 +292,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView, url: String?) {
                 view.evaluateJavascript("if(window.setEditing){setEditing($editMode)}", null)
+                applySettings()
             }
         }
     }
@@ -233,11 +324,23 @@ class MainActivity : AppCompatActivity() {
     private fun blocked(): WebResourceResponse =
         WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
 
-    /** Мост «страница -> приложение»: нажатие на редактируемый элемент в режиме правки. */
+    /** Мост «страница -> приложение»: правка текста и номер текущей страницы. */
     inner class Bridge {
         @JavascriptInterface
         fun edit(id: String) {
             runOnUiThread { requestEdit(id) }
+        }
+
+        @JavascriptInterface
+        fun page(current: Int, total: Int) {
+            runOnUiThread {
+                if (pageTotal != total) {
+                    pageTotal = total
+                    invalidateOptionsMenu()
+                }
+                binding.pageIndicator.text = "$current / $total"
+                binding.pageIndicator.isVisible = total > 1
+            }
         }
     }
 
@@ -306,10 +409,10 @@ class MainActivity : AppCompatActivity() {
                 throw DocException(getString(R.string.err_pdf), e)
             }
             val html = Html.pdfPages(pdf.pageSizes())
-            return Loaded(OpenDoc(uri, name, format, ByteArray(0), null, pdf), html)
+            return Loaded(OpenDoc(uri, name, format, ByteArray(0), null, pdf, PdfTools(file)), html)
         }
         val html = Engines.forFormat(format).renderHtml(bytes)
-        return Loaded(OpenDoc(uri, name, format, bytes, ZipPackage.read(bytes), null), html)
+        return Loaded(OpenDoc(uri, name, format, bytes, ZipPackage.read(bytes), null, null), html)
     }
 
     private fun show(loaded: Loaded) {
@@ -317,6 +420,7 @@ class MainActivity : AppCompatActivity() {
         doc = loaded.doc
         old?.pdf?.close()
         editMode = false
+        resetNavigation()
         binding.web.loadDataWithBaseURL(Html.BASE_URL, loaded.html, "text/html", "UTF-8", null)
         binding.start.isVisible = false
         binding.web.isVisible = true
@@ -332,12 +436,20 @@ class MainActivity : AppCompatActivity() {
         doc = null
         old?.pdf?.close()
         editMode = false
+        resetNavigation()
         binding.web.loadUrl("about:blank")
         binding.web.isVisible = false
         binding.start.isVisible = true
         supportActionBar?.title = getString(R.string.app_name)
         supportActionBar?.subtitle = null
         invalidateOptionsMenu()
+    }
+
+    /** Сбрасывает поиск и нумерацию страниц при смене документа. */
+    private fun resetNavigation() {
+        closeSearch()
+        pageTotal = 0
+        binding.pageIndicator.isVisible = false
     }
 
     private fun displayName(uri: Uri): String? =
@@ -367,6 +479,305 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ------------------------------------------------------------------ поиск
+
+    private fun setupSearch() {
+        binding.searchInput.doAfterTextChanged { text ->
+            val query = text?.toString().orEmpty().trim()
+            if (doc?.format == DocFormat.PDF) {
+                if (query.isEmpty()) {
+                    pdfHits = emptyList()
+                    pdfHitIndex = -1
+                    binding.searchCount.text = ""
+                }
+            } else if (query.isEmpty()) {
+                binding.web.clearMatches()
+                binding.searchCount.text = ""
+            } else {
+                binding.web.findAllAsync(query)
+            }
+        }
+        binding.searchInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                submitSearch()
+                true
+            } else {
+                false
+            }
+        }
+        binding.btnSearchNext.setOnClickListener { searchStep(true) }
+        binding.btnSearchPrev.setOnClickListener { searchStep(false) }
+        binding.btnSearchClose.setOnClickListener { closeSearch() }
+        binding.searchCount.setOnClickListener { if (pdfHits.isNotEmpty()) showHitList() }
+    }
+
+    private fun openSearch() {
+        if (doc == null) return
+        binding.searchBar.isVisible = true
+        binding.searchInput.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(binding.searchInput, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun closeSearch() {
+        if (binding.searchBar.isVisible) hideKeyboard()
+        binding.searchBar.isVisible = false
+        binding.searchInput.setText("")
+        binding.searchCount.text = ""
+        binding.web.clearMatches()
+        pdfHits = emptyList()
+        pdfHitIndex = -1
+    }
+
+    private fun hideKeyboard() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(binding.searchInput.windowToken, 0)
+    }
+
+    private fun submitSearch() {
+        val query = binding.searchInput.text.toString().trim()
+        if (query.isEmpty()) return
+        hideKeyboard()
+        val d = doc ?: return
+        val tools = d.tools
+        if (tools == null) {
+            binding.web.findAllAsync(query)
+            return
+        }
+        // У PDF нет HTML-текста: ищем в извлечённом тексте страниц и переходим на страницу с совпадением
+        work(
+            task = { if (tools.hasText()) tools.search(query) else null },
+            onDone = { hits ->
+                if (hits == null) {
+                    snack(getString(R.string.search_no_text))
+                } else {
+                    pdfHits = hits
+                    if (hits.isEmpty()) {
+                        pdfHitIndex = -1
+                        binding.searchCount.text = getString(R.string.search_none)
+                    } else {
+                        pdfHitIndex = 0
+                        showHit()
+                    }
+                }
+            },
+        )
+    }
+
+    private fun showHit() {
+        val hit = pdfHits.getOrNull(pdfHitIndex) ?: return
+        binding.searchCount.text = getString(R.string.search_count_pdf, pdfHitIndex + 1, pdfHits.size, hit.page)
+        gotoPage(hit.page)
+    }
+
+    private fun searchStep(forward: Boolean) {
+        if (doc?.format == DocFormat.PDF) {
+            if (pdfHits.isEmpty()) return
+            pdfHitIndex = (pdfHitIndex + (if (forward) 1 else pdfHits.size - 1)) % pdfHits.size
+            showHit()
+        } else {
+            binding.web.findNext(forward)
+        }
+    }
+
+    private fun showHitList() {
+        val items = pdfHits.map { getString(R.string.search_hit_item, it.page, it.snippet) }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.search_hits_title, pdfHits.size))
+            .setItems(items) { _, which ->
+                pdfHitIndex = which
+                showHit()
+            }
+            .show()
+    }
+
+    // ------------------------------------------------------------------ страницы
+
+    private fun gotoPage(page: Int) {
+        binding.web.evaluateJavascript("if(window.gotoPage){gotoPage($page)}", null)
+    }
+
+    private fun showGotoDialog() {
+        if (pageTotal <= 1) return
+        val input = EditText(this)
+        input.inputType = InputType.TYPE_CLASS_NUMBER
+        input.hint = getString(R.string.goto_hint, pageTotal)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.goto_title)
+            .setView(inputContainer(input))
+            .setPositiveButton(R.string.goto_go) { _, _ ->
+                val page = input.text.toString().toIntOrNull()
+                if (page != null) gotoPage(page.coerceIn(1, pageTotal))
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun inputContainer(input: EditText): FrameLayout {
+        val container = FrameLayout(this)
+        container.setPadding(dp(20), dp(8), dp(20), 0)
+        container.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return container
+    }
+
+    // ------------------------------------------------------------------ картинки
+
+    private fun onImageLongPress(url: String) {
+        val d = doc ?: return
+        val uri = Uri.parse(url)
+        if (uri.host != "docforge.local") return
+        val path = uri.path.orEmpty()
+        if (path.startsWith("/m/")) {
+            val name = path.removePrefix("/m/")
+            val bytes = d.media?.get(name) ?: return
+            val fileName = name.substringAfterLast('/')
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.image_actions_title)
+                .setItems(arrayOf(getString(R.string.image_save))) { _, _ ->
+                    export(bytes, fileName, imageMimeFor(fileName))
+                }
+                .show()
+        } else if (path.startsWith("/pdf/")) {
+            val index = path.removePrefix("/pdf/").toIntOrNull() ?: return
+            MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.image_actions_title))
+                .setItems(arrayOf(getString(R.string.pdf_page_save), getString(R.string.pdf_page_images))) { _, which ->
+                    if (which == 0) savePdfPage(d, index) else savePdfPageImages(d, index)
+                }
+                .show()
+        }
+    }
+
+    private fun savePdfPage(d: OpenDoc, index: Int) {
+        val pdf = d.pdf ?: return
+        work(
+            task = { pdf.renderJpeg(index, 2400) ?: throw DocException(getString(R.string.err_open)) },
+            onDone = { bytes -> export(bytes, "${baseName(d)}_page${index + 1}.jpg", "image/jpeg") },
+        )
+    }
+
+    private fun savePdfPageImages(d: OpenDoc, index: Int) {
+        val tools = d.tools ?: return
+        work(
+            task = { tools.imagesOnPage(index) },
+            onDone = { images -> deliverImages(images, "${baseName(d)}_page${index + 1}_images.zip") },
+        )
+    }
+
+    /** Все картинки документа: из папок media (Office, ODF) или встроенные в PDF — одним архивом. */
+    private fun saveAllImages() {
+        val d = doc ?: return
+        work(
+            task = {
+                val tools = d.tools
+                val media = d.media
+                if (tools != null) {
+                    tools.allImages()
+                } else if (media != null) {
+                    val list = ArrayList<NamedImage>()
+                    for (part in media.names().filter { isMediaImage(it) }.sorted()) {
+                        val bytes = media.get(part)
+                        if (bytes != null) list.add(NamedImage(part.substringAfterLast('/'), bytes))
+                    }
+                    list
+                } else {
+                    emptyList<NamedImage>()
+                }
+            },
+            onDone = { images -> deliverImages(images, "${baseName(d)}_images.zip") },
+        )
+    }
+
+    private fun deliverImages(images: List<NamedImage>, zipName: String) {
+        when {
+            images.isEmpty() -> snack(getString(R.string.no_images))
+            images.size == 1 -> export(images[0].bytes, images[0].name, imageMimeFor(images[0].name))
+            else -> work(task = { zip(images) }, onDone = { bytes -> export(bytes, zipName, "application/zip") })
+        }
+    }
+
+    private fun isMediaImage(path: String): Boolean {
+        val lower = path.lowercase()
+        val inMedia = lower.contains("/media/") || lower.startsWith("pictures/")
+        return inMedia && lower.substringAfterLast('.', "") in IMAGE_EXTENSIONS
+    }
+
+    private fun imageMimeFor(name: String): String = Html.imageMime(name) ?: "application/octet-stream"
+
+    private fun baseName(d: OpenDoc): String = d.name.substringBeforeLast('.', d.name)
+
+    private fun zip(images: List<NamedImage>): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            val used = HashSet<String>()
+            for (image in images) {
+                var name = image.name
+                var n = 1
+                while (!used.add(name)) {
+                    n++
+                    name = "${n}_${image.name}"
+                }
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(image.bytes)
+                zip.closeEntry()
+            }
+        }
+        return out.toByteArray()
+    }
+
+    /** Открывает системный диалог «Сохранить как»; запись — в [onExportTarget]. */
+    private fun export(bytes: ByteArray, name: String, mime: String) {
+        val launcher = exportSavers[mime] ?: exportSavers.getValue("application/octet-stream")
+        pendingExport = Export(bytes, name, mime)
+        launcher.launch(name)
+    }
+
+    private fun onExportTarget(uri: Uri?) {
+        val request = pendingExport ?: return
+        pendingExport = null
+        if (uri == null) return
+        work(
+            task = {
+                write(uri, request.bytes)
+                displayName(uri) ?: request.name
+            },
+            onDone = { name -> snack(getString(R.string.saved, name)) },
+        )
+    }
+
+    // ------------------------------------------------------------------ поделиться и печать
+
+    private fun share() {
+        val d = doc ?: return
+        work(
+            task = {
+                val dir = File(cacheDir, "share")
+                dir.mkdirs()
+                dir.listFiles()?.forEach { it.delete() }
+                val safe = d.name.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").ifEmpty { "document" }
+                val file = File(dir, safe)
+                val pdf = d.pdf
+                if (pdf != null) pdf.file.copyTo(file, overwrite = true) else file.writeBytes(d.bytes)
+                file
+            },
+            onDone = { file ->
+                val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+                val send = Intent(Intent.ACTION_SEND)
+                send.type = d.format.mime
+                send.putExtra(Intent.EXTRA_STREAM, uri)
+                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                startActivity(Intent.createChooser(send, getString(R.string.menu_share)))
+            },
+        )
+    }
+
+    /** Печать и «Сохранить как PDF» средствами Android: выводится то, что сейчас на странице. */
+    private fun printDocument() {
+        val d = doc ?: return
+        val manager = getSystemService(Context.PRINT_SERVICE) as PrintManager
+        manager.print(d.name, binding.web.createPrintDocumentAdapter(d.name), PrintAttributes.Builder().build())
+    }
+
     // ------------------------------------------------------------------ правка
 
     private fun requestEdit(id: String) {
@@ -384,12 +795,9 @@ class MainActivity : AppCompatActivity() {
         input.setText(current)
         input.setSelection(current.length)
         input.maxLines = 10
-        val container = FrameLayout(this)
-        container.setPadding(dp(20), dp(8), dp(20), 0)
-        container.addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.edit_dialog_title)
-            .setView(container)
+            .setView(inputContainer(input))
             .setPositiveButton(R.string.apply) { _, _ -> applyEdit(id, input.text.toString()) }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -520,4 +928,12 @@ class MainActivity : AppCompatActivity() {
     private fun snack(text: String) = Snackbar.make(binding.root, text, Snackbar.LENGTH_SHORT).show()
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        val EXPORT_MIMES = listOf(
+            "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/svg+xml",
+            "application/zip", "application/octet-stream",
+        )
+        val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tif", "tiff", "emf", "wmf")
+    }
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Файлы, которые приложение отдаёт другим приложениям при «Поделиться» -->
+    <cache-path name="share" path="share/" />
+</paths>

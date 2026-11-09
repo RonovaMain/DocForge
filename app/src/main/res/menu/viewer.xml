@@ -2,9 +2,9 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
-        android:id="@+id/action_open"
-        android:icon="@drawable/ic_open"
-        android:title="@string/menu_open"
+        android:id="@+id/action_search"
+        android:icon="@drawable/ic_search"
+        android:title="@string/menu_search"
         app:showAsAction="ifRoom" />
     <item
         android:id="@+id/action_edit"
@@ -18,8 +18,33 @@
         android:title="@string/menu_save"
         app:showAsAction="ifRoom" />
     <item
+        android:id="@+id/action_open"
+        android:icon="@drawable/ic_open"
+        android:title="@string/menu_open"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_goto"
+        android:title="@string/menu_goto"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_save_as"
         android:title="@string/menu_save_as"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_save_images"
+        android:title="@string/menu_save_images"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_share"
+        android:title="@string/menu_share"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_print"
+        android:title="@string/menu_print"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_settings"
+        android:title="@string/menu_settings"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_close"

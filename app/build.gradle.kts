@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "0.3.8"
+        versionName = "0.4.2"
     }
 
     // Подпись релиза включается только если заданы переменные окружения (так делает GitHub Actions).
@@ -66,6 +66,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
+
+    // Текст и встроенные картинки PDF (для поиска и «Сохранить картинку»); показ страниц делает встроенный PdfRenderer
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     testImplementation("junit:junit:4.13.2")
 }
