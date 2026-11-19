@@ -77,4 +77,39 @@
     <string name="about_version">Версия %1$s</string>
     <string name="about_github">Мой GitHub</string>
     <string name="err_no_browser">Не найдено приложение, чтобы открыть ссылку</string>
+
+    <string name="menu_present">Режим презентации</string>
+    <string name="present_title">Режим презентации</string>
+    <string name="present_message">Страница целиком на весь экран. Нажатие слева — назад, справа — вперёд, середина ничего не делает. Телефон можно поворачивать.</string>
+    <string name="present_start">Начать</string>
+    <string name="present_from_start">С начала</string>
+
+    <string name="pres_menu">Меню режима презентации</string>
+    <string name="pres_goto">Перейти на страницу…</string>
+    <string name="pres_gestures_off">Отключить жесты (включить масштаб)</string>
+    <string name="pres_gestures_on">Включить жесты листания</string>
+    <string name="pres_draw">Рисование и выделение</string>
+    <string name="pres_pagenum">Номер страницы</string>
+    <string name="pres_exit">Выйти из режима</string>
+    <string name="pres_gestures_hint">Жесты отключены: листание касанием выключено, можно приближать. Пометки скрыты, пока включён масштаб.</string>
+
+    <string name="tool_pen">Ручка</string>
+    <string name="tool_marker">Маркер</string>
+    <string name="tool_eraser">Ластик</string>
+    <string name="tool_undo">Отменить</string>
+    <string name="tool_clear">Стереть всё на странице</string>
+    <string name="tool_save_pdf">Сохранить пометки в PDF</string>
+    <string name="tool_done">Готово</string>
+    <string name="tool_prev_page">Предыдущая страница</string>
+    <string name="tool_next_page">Следующая страница</string>
+
+    <string name="ink_empty">Пометок пока нет</string>
+    <string name="ink_save_title">Сохранить пометки в PDF</string>
+    <string name="ink_save_copy">Сохранить копию…</string>
+    <string name="ink_save_overwrite">Перезаписать исходный файл</string>
+    <string name="ink_saved">Пометки сохранены в PDF</string>
+    <string name="ink_unsaved_title">Сохранить пометки?</string>
+    <string name="ink_unsaved_pdf">На страницах есть пометки, которых нет в файле. Вшить их в PDF?</string>
+    <string name="ink_save_action">Сохранить…</string>
+    <string name="ink_discard">Выйти без сохранения</string>
 </resources>

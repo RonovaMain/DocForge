@@ -23,6 +23,10 @@
         android:title="@string/menu_open"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_present"
+        android:title="@string/menu_present"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_goto"
         android:title="@string/menu_goto"
         app:showAsAction="never" />

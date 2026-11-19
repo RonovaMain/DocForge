@@ -181,6 +181,12 @@ public final class Html {
             + ".mk{display:inline-block;text-indent:0}"
             + ".num{position:absolute;right:6px;bottom:4px;font:11px sans-serif;color:#888}";
 
+    /** Режим презентации: чёрный фон, страница по центру целиком (размеры задаёт скрипт страницы). */
+    private static final String PRES_CSS =
+            "html.pres,body.pres{height:100%;margin:0;padding:0;overflow:hidden;background:#000}"
+            + "body.pres{position:relative}"
+            + "html.pres.night{background:#fff}";
+
     private static final String COMMON_JS =
             "var editing=false;"
             + "window.setNight=function(on){document.documentElement.classList.toggle('night',!!on);};"
@@ -197,23 +203,51 @@ public final class Html {
             + "var tb=document.querySelectorAll('.tabs button');"
             + "for(var q=0;q<tb.length;q++){(function(n){tb[n].addEventListener('click',function(){window.showSheet(n);});})(q);}";
 
-    /** Нумерация страниц: слайды и страницы PDF. Сообщает приложению текущую страницу и умеет прокручивать к нужной. */
+    /**
+     * Нумерация страниц (слайды и страницы PDF) и режим презентации: по одной странице на весь экран, целиком, с полями.
+     * Сообщает приложению текущую страницу и (в режиме презентации) прямоугольник, где страница нарисована.
+     */
     private static final String PAGE_JS =
-            "var els=document.querySelectorAll('.pdfpage,.slidebox'),total=els.length,lastPage=0;"
+            "var els=document.querySelectorAll('.pdfpage,.slidebox'),total=els.length,lastPage=0,pres=false,presIdx=0;"
             + "function curPage(){var vh=document.documentElement.clientHeight,best=0,bestVis=-1;"
             + "for(var i=0;i<total;i++){var r=els[i].getBoundingClientRect();"
             + "var vis=Math.min(r.bottom,vh)-Math.max(r.top,0);if(vis>bestVis){bestVis=vis;best=i;}"
             + "if(r.top>vh){break;}}"
             + "if(window.pageYOffset+vh>=document.documentElement.scrollHeight-2){return total;}return best+1;}"
-            + "function reportPage(){if(!total){return;}var c=curPage();if(c!==lastPage){lastPage=c;"
+            + "function reportPage(){if(!total){return;}var c=pres?presIdx+1:curPage();if(c!==lastPage){lastPage=c;"
             + "if(window.Android&&window.Android.page){window.Android.page(c,total);}}}"
-            + "window.addEventListener('scroll',reportPage,{passive:true});window.addEventListener('resize',reportPage);"
+            + "function clampIdx(i){return Math.max(0,Math.min(total-1,i));}"
+            + "function presLayout(){if(!pres){return;}"
+            + "var vw=window.innerWidth,vh=window.innerHeight,rx=0,ry=0,rw=vw,rh=vh;"
+            + "for(var i=0;i<total;i++){var e=els[i],s=e.style;"
+            + "if(Math.abs(i-presIdx)>1){s.display='none';continue;}"
+            + "var cur=i===presIdx,sl=e.classList.contains('slidebox');"
+            + "var w=+e.getAttribute(sl?'data-w':'width')||1,h=+e.getAttribute(sl?'data-h':'height')||1;"
+            + "var k=Math.min(vw/w,vh/h),bw=w*k,bh=h*k,bx=(vw-bw)/2,by=(vh-bh)/2;"
+            + "s.display='block';s.position='absolute';s.margin='0';s.boxShadow='none';"
+            + "s.width=bw+'px';s.height=bh+'px';s.left=bx+'px';s.top=by+'px';s.visibility=cur?'visible':'hidden';"
+            + "if(sl){e.firstChild.style.transform='scale('+k+')';}"
+            + "if(cur){rx=bx;ry=by;rw=bw;rh=bh;}}"
+            + "if(window.Android&&window.Android.presRect){window.Android.presRect(presIdx,rx,ry,rw,rh,vw);}}"
+            + "window.addEventListener('scroll',reportPage,{passive:true});"
+            + "window.addEventListener('resize',function(){reportPage();presLayout();});"
             + "window.gotoPage=function(n){if(!total){return;}var i=Math.max(1,Math.min(total,n))-1;"
+            + "if(pres){presIdx=i;presLayout();reportPage();return;}"
             + "window.scrollTo(0,els[i].getBoundingClientRect().top+window.pageYOffset);};"
+            + "window.presStart=function(n){if(!total){return;}pres=true;presIdx=clampIdx(n-1);"
+            + "document.documentElement.classList.add('pres');document.body.classList.add('pres');"
+            + "window.scrollTo(0,0);presLayout();reportPage();};"
+            + "window.presStop=function(){if(!pres){return;}pres=false;"
+            + "document.documentElement.classList.remove('pres');document.body.classList.remove('pres');"
+            + "for(var i=0;i<total;i++){els[i].style.cssText='';}"
+            + "if(typeof fit==='function'){fit();}"
+            + "window.gotoPage(presIdx+1);reportPage();};"
+            + "window.presGo=function(d){if(!pres){return;}var i=clampIdx(presIdx+d);"
+            + "if(i!==presIdx){presIdx=i;presLayout();reportPage();}};"
             + "reportPage();";
 
     private static final String SLIDE_JS =
-            "function fit(){var bs=document.querySelectorAll('.slidebox');"
+            "function fit(){if(pres){return;}var bs=document.querySelectorAll('.slidebox');"
             + "for(var i=0;i<bs.length;i++){var b=bs[i],w=+b.getAttribute('data-w'),h=+b.getAttribute('data-h'),k=b.clientWidth/w;"
             + "b.firstChild.style.transform='scale('+k+')';b.style.height=(h*k)+'px';}}"
             + "window.addEventListener('resize',fit);fit();";
@@ -229,7 +263,7 @@ public final class Html {
         switch (kind) {
             case TEXT: css += TEXT_CSS; break;
             case SHEET: css += SHEET_CSS; js += SHEET_JS; break;
-            case SLIDES: css += SLIDE_CSS; js += SLIDE_JS + PAGE_JS; break;
+            case SLIDES: css += SLIDE_CSS + PRES_CSS; js += SLIDE_JS + PAGE_JS; break;
             default: break;
         }
         return "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
@@ -247,7 +281,8 @@ public final class Html {
         sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
                 .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
                 .append("<style>html{background:#c9cbd1}body{margin:0}html.night{filter:invert(1) hue-rotate(180deg)}")
-                .append("img{display:block;width:100%;height:auto;margin:0 0 6px;background:#fff}</style>")
+                .append("img{display:block;width:100%;height:auto;margin:0 0 6px;background:#fff}")
+                .append(PRES_CSS).append("</style>")
                 .append("</head><body>");
         for (int i = 0; i < sizes.size(); i++) {
             int[] s = sizes.get(i);

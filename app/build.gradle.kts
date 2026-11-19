@@ -13,8 +13,8 @@ android {
         applicationId = "dev.ronova.docforge"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.4.2"
+        versionCode = 3
+        versionName = "0.5.6"
     }
 
     // Подпись релиза включается только если заданы переменные окружения (так делает GitHub Actions).

@@ -1,82 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical">
-
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize" />
+    android:layout_height="match_parent">
 
     <LinearLayout
-        android:id="@+id/searchBar"
+        android:id="@+id/viewerColumn"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/colorSurfaceContainer"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="4dp"
-        android:visibility="gone">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/searchInput"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:background="@null"
-            android:hint="@string/search_hint"
-            android:imeOptions="actionSearch"
-            android:importantForAutofill="no"
-            android:inputType="text"
-            android:maxLines="1" />
-
-        <TextView
-            android:id="@+id/searchCount"
-            android:layout_width="wrap_content"
+        <!-- Верхняя панель целиком: при прокрутке вниз уезжает вверх, при прокрутке вверх возвращается -->
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="4dp"
-            android:textAppearance="?attr/textAppearanceBodySmall" />
+            android:orientation="vertical">
 
-        <ImageButton
-            android:id="@+id/btnSearchPrev"
-            android:layout_width="44dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/search_prev"
-            android:src="@drawable/ic_up" />
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/actionBarSize" />
 
-        <ImageButton
-            android:id="@+id/btnSearchNext"
-            android:layout_width="44dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/search_next"
-            android:src="@drawable/ic_down" />
+            <LinearLayout
+                android:id="@+id/searchBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/colorSurfaceContainer"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingEnd="4dp"
+                android:visibility="gone">
 
-        <ImageButton
-            android:id="@+id/btnSearchClose"
-            android:layout_width="44dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/search_close"
-            android:src="@drawable/ic_close" />
-    </LinearLayout>
+                <EditText
+                    android:id="@+id/searchInput"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="@string/search_hint"
+                    android:imeOptions="actionSearch"
+                    android:importantForAutofill="no"
+                    android:inputType="text"
+                    android:maxLines="1" />
 
-    <com.google.android.material.progressindicator.LinearProgressIndicator
-        android:id="@+id/progress"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:indeterminate="true"
-        android:visibility="invisible" />
+                <TextView
+                    android:id="@+id/searchCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="4dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
 
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+                <ImageButton
+                    android:id="@+id/btnSearchPrev"
+                    android:layout_width="44dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/search_prev"
+                    android:src="@drawable/ic_up" />
+
+                <ImageButton
+                    android:id="@+id/btnSearchNext"
+                    android:layout_width="44dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/search_next"
+                    android:src="@drawable/ic_down" />
+
+                <ImageButton
+                    android:id="@+id/btnSearchClose"
+                    android:layout_width="44dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/search_close"
+                    android:src="@drawable/ic_close" />
+            </LinearLayout>
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:indeterminate="true"
+                android:visibility="invisible" />
+
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/area"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
         <WebView
             android:id="@+id/web"
@@ -157,5 +172,166 @@
                     android:visibility="gone" />
             </LinearLayout>
         </ScrollView>
-    </FrameLayout>
-</LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Пометки поверх страницы в режиме презентации -->
+    <dev.ronova.docforge.InkView
+        android:id="@+id/ink"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- Три точки режима презентации: всегда в правом верхнем углу -->
+    <ImageButton
+        android:id="@+id/presMenu"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="8dp"
+        android:alpha="0.7"
+        android:background="@drawable/bg_float_button"
+        android:contentDescription="@string/pres_menu"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_more"
+        android:visibility="gone" />
+
+    <!-- Панель рисования -->
+    <LinearLayout
+        android:id="@+id/drawBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="12dp"
+        android:background="@drawable/bg_draw_bar"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/toolPen"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_pen"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_pen"
+                android:tint="@android:color/white" />
+            <ImageButton
+                android:id="@+id/toolMarker"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_marker"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_marker"
+                android:tint="@android:color/white" />
+            <ImageButton
+                android:id="@+id/toolEraser"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_eraser"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_eraser"
+                android:tint="@android:color/white" />
+
+            <LinearLayout
+                android:id="@+id/colorRow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/drawPrev"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_prev_page"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_prev"
+                android:tint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/drawPage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="52dp"
+                android:gravity="center"
+                android:textColor="@android:color/white"
+                android:textSize="14sp" />
+
+            <ImageButton
+                android:id="@+id/drawNext"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_next_page"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_next"
+                android:tint="@android:color/white" />
+            <ImageButton
+                android:id="@+id/toolUndo"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_undo"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_undo"
+                android:tint="@android:color/white" />
+            <ImageButton
+                android:id="@+id/toolClear"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_clear"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_delete"
+                android:tint="@android:color/white" />
+            <ImageButton
+                android:id="@+id/toolSave"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_save_pdf"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_save_white"
+                android:tint="@android:color/white" />
+            <ImageButton
+                android:id="@+id/toolDone"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool"
+                android:contentDescription="@string/tool_done"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_check"
+                android:tint="@android:color/white" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

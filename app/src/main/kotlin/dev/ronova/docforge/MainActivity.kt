@@ -1,6 +1,15 @@
 package dev.ronova.docforge
 
 import android.annotation.SuppressLint
+import android.graphics.Color
+import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
+import android.os.SystemClock
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -77,6 +86,24 @@ class MainActivity : AppCompatActivity() {
     private var pdfHitIndex = -1
     private var pendingExport: Export? = null
 
+    // верхняя панель, скрываемая при прокрутке
+    private var barHidden = false
+    private var barHeight = 0
+    private var barLockUntil = 0L
+    private var scrollAccum = 0
+
+    // режим презентации
+    private var presenting = false
+    private var gesturesOn = true
+    private var drawing = false
+    private var showPageNum = true
+    private var curPage = 1
+    private var pendingPresentPage: Int? = null
+    private val swatches = ArrayList<View>()
+    private var tapValid = false
+    private var tapX = 0f
+    private var tapY = 0f
+
     private class OpenDoc(
         var uri: Uri,
         var name: String,
@@ -92,7 +119,7 @@ class MainActivity : AppCompatActivity() {
 
     private class Loaded(val doc: OpenDoc, val html: String)
 
-    private class Export(val bytes: ByteArray, val name: String, val mime: String)
+    private class Export(val bytes: ByteArray, val name: String, val mime: String, val onSaved: (() -> Unit)? = null)
 
     private val openPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -126,7 +153,9 @@ class MainActivity : AppCompatActivity() {
         recents = RecentFiles(this)
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.displayCutout(),
+            )
             view.updatePadding(left = bars.left, top = bars.top, right = bars.right, bottom = bars.bottom)
             insets
         }
@@ -139,12 +168,14 @@ class MainActivity : AppCompatActivity() {
         binding.pageIndicator.setOnClickListener { showGotoDialog() }
         setupSearch()
         configureWebView()
+        setupPresentation()
 
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     when {
+                        presenting -> if (drawing) setDrawing(false) else confirmInk { stopPresentation() }
                         binding.searchBar.isVisible -> closeSearch()
                         doc != null -> confirmDiscard { closeDocument() }
                         else -> finish()
@@ -164,6 +195,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        resetBar()
         applySettings()
     }
 
@@ -180,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         val kind = doc?.format?.kind
         binding.web.settings.textZoom =
             if (kind == DocFormat.Kind.TEXT || kind == DocFormat.Kind.SHEET) settings.textZoom else 100
-        if (settings.keepScreenOn) {
+        if (settings.keepScreenOn || presenting) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -206,6 +238,7 @@ class MainActivity : AppCompatActivity() {
         menu.findItem(R.id.action_save).isVisible = editable
         menu.findItem(R.id.action_save_as).isVisible = editable
         menu.findItem(R.id.action_goto).isVisible = pageTotal > 1
+        menu.findItem(R.id.action_present).isVisible = canPresent() && pageTotal >= 1
         menu.findItem(R.id.action_save_images).isVisible = d != null
         menu.findItem(R.id.action_share).isVisible = d != null
         menu.findItem(R.id.action_print).isVisible = d != null && d.format != DocFormat.PDF
@@ -225,6 +258,7 @@ class MainActivity : AppCompatActivity() {
             R.id.action_save -> save()
             R.id.action_save_as -> doc?.let { savers[it.format.mime]?.launch(it.name) }
             R.id.action_goto -> showGotoDialog()
+            R.id.action_present -> showPresentDialog()
             R.id.action_save_images -> saveAllImages()
             R.id.action_share -> share()
             R.id.action_print -> printDocument()
@@ -270,6 +304,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Долгое нажатие на картинку документа или страницу PDF — меню «Сохранить»
         web.setOnLongClickListener { view ->
+            if (presenting) return@setOnLongClickListener false
             val hit = (view as WebView).hitTestResult
             val extra = hit.extra
             if (extra != null &&
@@ -293,6 +328,11 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 view.evaluateJavascript("if(window.setEditing){setEditing($editMode)}", null)
                 applySettings()
+                // после «Перезаписать исходный файл» документ открыт заново — возвращаемся в режим презентации
+                pendingPresentPage?.let { page ->
+                    pendingPresentPage = null
+                    startPresentation(page)
+                }
             }
         }
     }
@@ -338,9 +378,17 @@ class MainActivity : AppCompatActivity() {
                     pageTotal = total
                     invalidateOptionsMenu()
                 }
+                curPage = current
                 binding.pageIndicator.text = "$current / $total"
-                binding.pageIndicator.isVisible = total > 1
+                binding.drawPage.text = "$current / $total"
+                updatePageIndicator()
             }
+        }
+
+        /** Режим презентации: страница [index] нарисована в этом прямоугольнике (CSS-пиксели; [viewportWidth] — ширина окна страницы). */
+        @JavascriptInterface
+        fun presRect(index: Int, x: Double, y: Double, w: Double, h: Double, viewportWidth: Double) {
+            runOnUiThread { onPresRect(index, x, y, w, h, viewportWidth) }
         }
     }
 
@@ -400,7 +448,7 @@ class MainActivity : AppCompatActivity() {
             ?: throw DocException(getString(R.string.err_open))
         val format = DocFormat.detect(name, bytes)
         if (format == DocFormat.PDF) {
-            val file = File(cacheDir, "current.pdf")
+            val file = File(cacheDir, "doc-${System.nanoTime()}.pdf")
             file.writeBytes(bytes)
             val pdf = try {
                 PdfSource(file)
@@ -416,6 +464,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun show(loaded: Loaded) {
+        if (presenting) stopPresentation()
+        resetBar()
         val old = doc
         doc = loaded.doc
         old?.pdf?.close()
@@ -432,6 +482,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeDocument() {
+        if (presenting) stopPresentation()
+        resetBar()
         val old = doc
         doc = null
         old?.pdf?.close()
@@ -449,6 +501,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetNavigation() {
         closeSearch()
         pageTotal = 0
+        curPage = 1
         binding.pageIndicator.isVisible = false
     }
 
@@ -512,7 +565,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openSearch() {
-        if (doc == null) return
+        if (doc == null || presenting) return
+        resetBar()
         binding.searchBar.isVisible = true
         binding.searchInput.requestFocus()
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -594,6 +648,7 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ страницы
 
     private fun gotoPage(page: Int) {
+        if (presenting && !gesturesOn) resetZoom()
         binding.web.evaluateJavascript("if(window.gotoPage){gotoPage($page)}", null)
     }
 
@@ -726,9 +781,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Открывает системный диалог «Сохранить как»; запись — в [onExportTarget]. */
-    private fun export(bytes: ByteArray, name: String, mime: String) {
+    private fun export(bytes: ByteArray, name: String, mime: String, onSaved: (() -> Unit)? = null) {
         val launcher = exportSavers[mime] ?: exportSavers.getValue("application/octet-stream")
-        pendingExport = Export(bytes, name, mime)
+        pendingExport = Export(bytes, name, mime, onSaved)
         launcher.launch(name)
     }
 
@@ -741,7 +796,10 @@ class MainActivity : AppCompatActivity() {
                 write(uri, request.bytes)
                 displayName(uri) ?: request.name
             },
-            onDone = { name -> snack(getString(R.string.saved, name)) },
+            onDone = { name ->
+                snack(getString(R.string.saved, name))
+                request.onSaved?.invoke()
+            },
         )
     }
 
@@ -865,8 +923,11 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** Сначала спрашивает про несохранённые пометки в PDF, затем про несохранённые правки текста. */
+    private fun confirmDiscard(proceed: () -> Unit) = confirmInk { confirmEdits(proceed) }
+
     /** Если есть несохранённые правки — спрашивает, что с ними делать, и только потом выполняет [proceed]. */
-    private fun confirmDiscard(proceed: () -> Unit) {
+    private fun confirmEdits(proceed: () -> Unit) {
         val d = doc
         if (d == null || !d.dirty) {
             proceed()
@@ -894,6 +955,427 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // ------------------------------------------------------------------ верхняя панель скрывается при прокрутке
+
+    /** Прокрутка вниз прячет панель вверх, прокрутка вверх возвращает её (как в браузере). Работает и в портрете, и в ландшафте. */
+    private fun onWebScroll(y: Int, oldY: Int) {
+        if (presenting || binding.searchBar.isVisible) return
+        if (SystemClock.uptimeMillis() < barLockUntil) return
+        if (y <= 0) {
+            scrollAccum = 0
+            setBarHidden(false)
+            return
+        }
+        val dy = y - oldY
+        if (dy == 0) return
+        if ((dy > 0) != (scrollAccum > 0)) scrollAccum = 0
+        scrollAccum += dy
+        if (scrollAccum > dp(HIDE_DISTANCE_DP) && y > dp(HIDE_DISTANCE_DP)) {
+            setBarHidden(true)
+        } else if (scrollAccum < -dp(SHOW_DISTANCE_DP)) {
+            setBarHidden(false)
+        }
+    }
+
+    /**
+     * Панель и документ едут вверх (или вниз) вместе, а размер WebView меняется один раз — в начале или в конце анимации,
+     * поэтому на каждом кадре страница не перерисовывается заново.
+     */
+    private fun setBarHidden(hidden: Boolean) {
+        if (presenting || hidden == barHidden) return
+        val bar = binding.topBar
+        val area = binding.area
+        barLockUntil = SystemClock.uptimeMillis() + BAR_LOCK_MS
+        scrollAccum = 0
+        bar.animate().cancel()
+        area.animate().cancel()
+        if (hidden) {
+            val h = bar.height
+            if (h <= 0) return
+            barHeight = h
+            barHidden = true
+            bar.animate().translationY(-h.toFloat()).setDuration(BAR_ANIM_MS).start()
+            area.animate().translationY(-h.toFloat()).setDuration(BAR_ANIM_MS).withEndAction {
+                if (barHidden) {
+                    bar.visibility = View.GONE
+                    bar.translationY = 0f
+                    area.translationY = 0f
+                }
+            }.start()
+        } else {
+            barHidden = false
+            if (bar.visibility != View.VISIBLE) {
+                bar.visibility = View.VISIBLE
+                bar.translationY = -barHeight.toFloat()
+                area.translationY = -barHeight.toFloat()
+            }
+            bar.animate().translationY(0f).setDuration(BAR_ANIM_MS).start()
+            area.animate().translationY(0f).setDuration(BAR_ANIM_MS).start()
+        }
+    }
+
+    /** Мгновенно возвращает панель на место (новый документ, поворот экрана, выход из презентации). */
+    private fun resetBar() {
+        binding.topBar.animate().cancel()
+        binding.area.animate().cancel()
+        binding.topBar.translationY = 0f
+        binding.area.translationY = 0f
+        binding.topBar.visibility = if (presenting) View.GONE else View.VISIBLE
+        barHidden = false
+        scrollAccum = 0
+        barLockUntil = SystemClock.uptimeMillis() + BAR_LOCK_MS
+    }
+
+    // ------------------------------------------------------------------ режим презентации
+
+    /** PDF и презентации (PPTX, ODP) можно показывать по одной странице на весь экран. */
+    private fun canPresent(): Boolean {
+        val d = doc ?: return false
+        return d.format == DocFormat.PDF || d.format.kind == DocFormat.Kind.SLIDES
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupPresentation() {
+        binding.presMenu.setOnClickListener { showPresMenu() }
+        // Касания только отслеживаем (возвращаем false), чтобы WebView по-прежнему мог масштабировать и прокручивать
+        binding.web.setOnTouchListener { view, event ->
+            trackTap(view, event)
+            false
+        }
+        binding.web.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY -> onWebScroll(scrollY, oldScrollY) }
+        setupDrawBar()
+    }
+
+    /** Спрашивает, с какой страницы начать: с начала, с текущей или с любой. */
+    private fun showPresentDialog() {
+        if (!canPresent()) return
+        val input = EditText(this)
+        input.inputType = InputType.TYPE_CLASS_NUMBER
+        input.hint = getString(R.string.goto_hint, pageTotal.coerceAtLeast(1))
+        input.setText(curPage.toString())
+        input.setSelectAllOnFocus(true)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.present_title)
+            .setMessage(R.string.present_message)
+            .setView(inputContainer(input))
+            .setPositiveButton(R.string.present_start) { _, _ ->
+                startPresentation(input.text.toString().toIntOrNull() ?: curPage)
+            }
+            .setNeutralButton(R.string.present_from_start) { _, _ -> startPresentation(1) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun startPresentation(page: Int) {
+        if (!canPresent() || presenting) return
+        if (editMode) {
+            editMode = false
+            applyEditMode()
+            invalidateOptionsMenu()
+        }
+        closeSearch()
+        presenting = true
+        gesturesOn = true
+        drawing = false
+        tapValid = false
+        binding.ink.clearAll()
+        resetBar()
+        updatePresUi()
+        applyPresentationZoom()
+        setImmersive(true)
+        applySettings()
+        val first = if (pageTotal > 0) page.coerceIn(1, pageTotal) else page.coerceAtLeast(1)
+        binding.web.evaluateJavascript("if(window.presStart){presStart($first)}", null)
+    }
+
+    private fun stopPresentation() {
+        if (!presenting) return
+        presenting = false
+        drawing = false
+        gesturesOn = true
+        tapValid = false
+        binding.web.settings.setSupportZoom(true)
+        resetZoom()
+        binding.ink.clearAll()
+        resetBar()
+        updatePresUi()
+        setImmersive(false)
+        applySettings()
+        binding.web.evaluateJavascript("if(window.presStop){presStop()}", null)
+    }
+
+    /** Показывает или прячет элементы режима презентации и верхнюю панель. */
+    private fun updatePresUi() {
+        val p = presenting
+        binding.presMenu.isVisible = p
+        // Пометки лежат поверх страницы «как она вписана в экран»; при масштабировании они бы разъехались — прячем
+        binding.ink.visibility = if (p && gesturesOn) View.VISIBLE else View.GONE
+        binding.ink.drawingEnabled = p && drawing
+        binding.drawBar.isVisible = p && drawing
+        binding.topBar.isVisible = !p
+        updatePageIndicator()
+    }
+
+    private fun updatePageIndicator() {
+        binding.pageIndicator.isVisible = pageTotal > 1 && (!presenting || (showPageNum && !drawing))
+    }
+
+    private fun setImmersive(on: Boolean) {
+        val controller = WindowCompat.getInsetsController(window, binding.root)
+        if (on) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    /** Жесты включены — масштабирование выключено (иначе двойное касание масштабирует вместо листания). */
+    private fun applyPresentationZoom() {
+        val web = binding.web
+        if (presenting && gesturesOn) {
+            resetZoom()
+            web.settings.setSupportZoom(false)
+        } else {
+            web.settings.setSupportZoom(true)
+        }
+    }
+
+    private fun resetZoom() {
+        var n = 0
+        while (n < 12 && binding.web.zoomOut()) n++
+    }
+
+    private fun setGestures(on: Boolean) {
+        if (!presenting || on == gesturesOn) return
+        gesturesOn = on
+        if (!on) drawing = false
+        applyPresentationZoom()
+        updatePresUi()
+        if (!on) snack(getString(R.string.pres_gestures_hint))
+    }
+
+    private fun presGo(delta: Int) {
+        binding.web.evaluateJavascript("if(window.presGo){presGo($delta)}", null)
+    }
+
+    /** Экран делится на три части: слева — назад, справа — вперёд, середина ничего не делает. */
+    private fun trackTap(view: View, e: MotionEvent) {
+        if (!presenting || !gesturesOn || drawing) {
+            tapValid = false
+            return
+        }
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                tapValid = true
+                tapX = e.x
+                tapY = e.y
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> tapValid = false
+            MotionEvent.ACTION_MOVE -> {
+                if (tapValid) {
+                    val slop = ViewConfiguration.get(this).scaledTouchSlop
+                    if (Math.abs(e.x - tapX) > slop || Math.abs(e.y - tapY) > slop) tapValid = false
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                val quick = e.eventTime - e.downTime < ViewConfiguration.getLongPressTimeout()
+                if (tapValid && quick) onPresTap(e.x, view.width)
+                tapValid = false
+            }
+            MotionEvent.ACTION_CANCEL -> tapValid = false
+        }
+    }
+
+    private fun onPresTap(x: Float, width: Int) {
+        val third = width / 3f
+        if (x < third) {
+            presGo(-1)
+        } else if (x > third * 2f) {
+            presGo(1)
+        }
+    }
+
+    /** Три точки в правом верхнем углу: переход на страницу, жесты, рисование, номер страницы, выход. */
+    private fun showPresMenu() {
+        val popup = PopupMenu(this, binding.presMenu)
+        popup.menuInflater.inflate(R.menu.presentation, popup.menu)
+        popup.menu.findItem(R.id.pres_gestures).setTitle(if (gesturesOn) R.string.pres_gestures_off else R.string.pres_gestures_on)
+        popup.menu.findItem(R.id.pres_pagenum).isChecked = showPageNum
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.pres_goto -> showGotoDialog()
+                R.id.pres_gestures -> setGestures(!gesturesOn)
+                R.id.pres_draw -> setDrawing(true)
+                R.id.pres_pagenum -> {
+                    showPageNum = !showPageNum
+                    updatePageIndicator()
+                }
+                R.id.pres_exit -> confirmInk { stopPresentation() }
+                else -> return@setOnMenuItemClickListener false
+            }
+            true
+        }
+        popup.show()
+    }
+
+    /** Страница нарисована в прямоугольнике (CSS-пиксели страницы) — переводим в пиксели слоя рисования. */
+    private fun onPresRect(index: Int, x: Double, y: Double, w: Double, h: Double, viewportWidth: Double) {
+        if (!presenting || viewportWidth <= 0.0 || binding.web.width <= 0) return
+        val k = binding.web.width / viewportWidth.toFloat()
+        val webAt = IntArray(2)
+        val inkAt = IntArray(2)
+        binding.web.getLocationInWindow(webAt)
+        binding.ink.getLocationInWindow(inkAt)
+        val left = (webAt[0] - inkAt[0]) + x.toFloat() * k
+        val top = (webAt[1] - inkAt[1]) + y.toFloat() * k
+        binding.ink.setPage(index, RectF(left, top, left + w.toFloat() * k, top + h.toFloat() * k))
+    }
+
+    // ------------------------------------------------------------------ рисование поверх страницы
+
+    private fun setupDrawBar() {
+        val size = dp(28)
+        val gap = dp(4)
+        for (color in INK_COLORS) {
+            val swatch = View(this)
+            val params = LinearLayout.LayoutParams(size, size)
+            params.setMargins(gap, 0, gap, 0)
+            swatch.layoutParams = params
+            swatch.setOnClickListener { selectInkColor(color) }
+            binding.colorRow.addView(swatch)
+            swatches.add(swatch)
+        }
+        binding.toolPen.setOnClickListener { selectInkTool(InkView.Tool.PEN) }
+        binding.toolMarker.setOnClickListener { selectInkTool(InkView.Tool.HIGHLIGHTER) }
+        binding.toolEraser.setOnClickListener { selectInkTool(InkView.Tool.ERASER) }
+        binding.toolUndo.setOnClickListener { binding.ink.undo() }
+        binding.toolClear.setOnClickListener { binding.ink.clearPage() }
+        binding.toolSave.setOnClickListener { saveInkToPdf() }
+        binding.toolDone.setOnClickListener { setDrawing(false) }
+        binding.drawPrev.setOnClickListener { presGo(-1) }
+        binding.drawNext.setOnClickListener { presGo(1) }
+        binding.ink.onChanged = { refreshDrawUi() }
+        refreshDrawUi()
+    }
+
+    private fun setDrawing(on: Boolean) {
+        if (!presenting) return
+        if (on && !gesturesOn) {
+            gesturesOn = true
+            applyPresentationZoom()
+        }
+        drawing = on
+        binding.toolSave.isVisible = doc?.format == DocFormat.PDF
+        refreshDrawUi()
+        updatePresUi()
+    }
+
+    private fun selectInkTool(tool: InkView.Tool) {
+        binding.ink.tool = tool
+        refreshDrawUi()
+    }
+
+    private fun selectInkColor(color: Int) {
+        val ink = binding.ink
+        if (ink.tool == InkView.Tool.HIGHLIGHTER) {
+            ink.markerColor = color
+        } else {
+            ink.tool = InkView.Tool.PEN
+            ink.penColor = color
+        }
+        refreshDrawUi()
+    }
+
+    private fun refreshDrawUi() {
+        val ink = binding.ink
+        binding.toolPen.isSelected = ink.tool == InkView.Tool.PEN
+        binding.toolMarker.isSelected = ink.tool == InkView.Tool.HIGHLIGHTER
+        binding.toolEraser.isSelected = ink.tool == InkView.Tool.ERASER
+        val erasing = ink.tool == InkView.Tool.ERASER
+        val current = if (ink.tool == InkView.Tool.HIGHLIGHTER) ink.markerColor else ink.penColor
+        for ((i, swatch) in swatches.withIndex()) {
+            val dot = GradientDrawable()
+            dot.shape = GradientDrawable.OVAL
+            dot.setColor(INK_COLORS[i])
+            dot.setStroke(dp(2), if (!erasing && INK_COLORS[i] == current) Color.WHITE else 0x55FFFFFF)
+            swatch.background = dot
+            swatch.alpha = if (erasing) 0.35f else 1f
+        }
+        binding.toolUndo.isEnabled = ink.canUndo()
+        binding.toolUndo.alpha = if (ink.canUndo()) 1f else 0.35f
+        binding.toolClear.isEnabled = ink.hasInkOnPage()
+        binding.toolClear.alpha = if (ink.hasInkOnPage()) 1f else 0.35f
+    }
+
+    // ------------------------------------------------------------------ пометки -> PDF
+
+    /** Перед выходом из презентации или закрытием PDF спрашивает, что делать с несохранёнными пометками. */
+    private fun confirmInk(proceed: () -> Unit) {
+        if (!presenting || doc?.format != DocFormat.PDF || !binding.ink.needsSave()) {
+            proceed()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.ink_unsaved_title)
+            .setMessage(R.string.ink_unsaved_pdf)
+            .setPositiveButton(R.string.ink_save_action) { _, _ -> saveInkToPdf() }
+            .setNegativeButton(R.string.ink_discard) { _, _ -> proceed() }
+            .setNeutralButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun saveInkToPdf() {
+        val d = doc ?: return
+        if (d.tools == null) return
+        if (!binding.ink.hasInk()) {
+            snack(getString(R.string.ink_empty))
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.ink_save_title)
+            .setItems(arrayOf(getString(R.string.ink_save_copy), getString(R.string.ink_save_overwrite))) { _, which ->
+                bakeInk(overwrite = which == 1)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun bakeInk(overwrite: Boolean) {
+        val d = doc ?: return
+        val tools = d.tools ?: return
+        val strokes = binding.ink.snapshot()
+        work(
+            task = { tools.bakeInk(strokes) },
+            onDone = { bytes ->
+                if (overwrite) {
+                    overwritePdf(d, bytes)
+                } else {
+                    export(bytes, "${baseName(d)}_notes.pdf", "application/pdf") { binding.ink.markSaved() }
+                }
+            },
+        )
+    }
+
+    /** Записывает PDF с пометками в исходный файл и открывает его заново — уже с вшитыми пометками. */
+    private fun overwritePdf(d: OpenDoc, bytes: ByteArray) {
+        work(
+            task = { write(d.uri, bytes) },
+            onDone = {
+                snack(getString(R.string.ink_saved))
+                val page = curPage
+                stopPresentation()
+                pendingPresentPage = page
+                openUri(d.uri, fromRecent = false)
+            },
+            onError = {
+                // Исходный файл только для чтения — предлагаем сохранить копию
+                snack(getString(R.string.save_fallback))
+                export(bytes, "${baseName(d)}_notes.pdf", "application/pdf") { binding.ink.markSaved() }
+            },
+        )
+    }
+
     // ------------------------------------------------------------------ вспомогательное
 
     /** Выполняет [task] в фоне; результат или ошибка приходят на главном потоке. */
@@ -910,6 +1392,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setBusy(busy: Boolean) {
+        if (busy && barHidden) setBarHidden(false)
         binding.progress.visibility = if (busy) View.VISIBLE else View.INVISIBLE
     }
 
@@ -932,8 +1415,15 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         val EXPORT_MIMES = listOf(
             "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/svg+xml",
-            "application/zip", "application/octet-stream",
+            "application/zip", "application/octet-stream", "application/pdf",
         )
+        const val BAR_ANIM_MS = 180L
+        const val BAR_LOCK_MS = 500L
+        const val HIDE_DISTANCE_DP = 24
+        const val SHOW_DISTANCE_DP = 10
+
+        /** Цвета ручки и маркера: жёлтый, красный, зелёный, синий, чёрный. */
+        val INK_COLORS = intArrayOf(0xFFFFEB3B.toInt(), 0xFFF44336.toInt(), 0xFF4CAF50.toInt(), 0xFF2196F3.toInt(), 0xFF212121.toInt())
         val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tif", "tiff", "emf", "wmf")
     }
 }

@@ -1,9 +1,13 @@
 package dev.ronova.docforge
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import com.tom_roush.pdfbox.cos.COSBase
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.PDResources
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -88,6 +92,83 @@ class PdfTools(private val file: File) {
             for (i in 0 until doc.numberOfPages) collectPage(doc, i, seen, result)
         }
         return result
+    }
+
+    /**
+     * Вшивает пометки (рисунки пальцем) в копию PDF и возвращает байты нового файла. [pages]: номер страницы с нуля →
+     * штрихи в долях страницы, как её видит человек (с учётом поворота и обрезки). Исходный файл не меняется.
+     */
+    @Synchronized
+    fun bakeInk(pages: Map<Int, List<InkView.Stroke>>): ByteArray {
+        return PDDocument.load(file).use { doc ->
+            for ((index, strokes) in pages) {
+                if (strokes.isEmpty() || index < 0 || index >= doc.numberOfPages) continue
+                val page = doc.getPage(index)
+                val box = page.cropBox
+                val rotation = ((page.rotation % 360) + 360) % 360
+                // Ширина страницы «как на экране»: при повороте на 90/270 она равна высоте рамки
+                val shownWidth = if (rotation == 90 || rotation == 270) box.height else box.width
+                PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true).use { cs ->
+                    for (stroke in strokes) drawStroke(cs, stroke, box, rotation, shownWidth)
+                }
+            }
+            val out = ByteArrayOutputStream()
+            doc.save(out)
+            out.toByteArray()
+        }
+    }
+
+    private fun drawStroke(cs: PDPageContentStream, stroke: InkView.Stroke, box: PDRectangle, rotation: Int, shownWidth: Float) {
+        val pts = stroke.points
+        if (pts.size < 2) return
+        val alpha = Color.alpha(stroke.color) / 255f
+        val state = PDExtendedGraphicsState()
+        state.setStrokingAlphaConstant(alpha)
+        state.setNonStrokingAlphaConstant(alpha)
+        cs.setGraphicsStateParameters(state)
+        cs.setStrokingColor(Color.red(stroke.color) / 255f, Color.green(stroke.color) / 255f, Color.blue(stroke.color) / 255f)
+        cs.setLineWidth(Math.max(stroke.width * shownWidth, 0.5f))
+        cs.setLineCapStyle(1)
+        cs.setLineJoinStyle(1)
+        var first = true
+        var i = 0
+        while (i + 1 < pts.size) {
+            val xy = toUserSpace(box, rotation, pts[i], pts[i + 1])
+            if (first) {
+                cs.moveTo(xy[0], xy[1])
+                first = false
+            }
+            cs.lineTo(xy[0], xy[1])
+            i += 2
+        }
+        cs.stroke()
+    }
+
+    /** Точка страницы в долях (u слева направо, v сверху вниз, как на экране) → координаты PDF. */
+    private fun toUserSpace(box: PDRectangle, rotation: Int, u: Float, v: Float): FloatArray {
+        val w = box.width
+        val h = box.height
+        val x: Float
+        val y: Float
+        when (rotation) {
+            90 -> {
+                x = v * w
+                y = u * h
+            }
+            180 -> {
+                x = (1f - u) * w
+                y = v * h
+            }
+            270 -> {
+                x = (1f - v) * w
+                y = (1f - u) * h
+            }
+            else -> {
+                x = u * w
+                y = (1f - v) * h
+            }
+        }
+        return floatArrayOf(box.lowerLeftX + x, box.lowerLeftY + y)
     }
 
     private fun collectPage(doc: PDDocument, pageIndex: Int, seen: MutableSet<String>, out: MutableList<NamedImage>) {
