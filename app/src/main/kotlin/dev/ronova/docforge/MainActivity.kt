@@ -1132,7 +1132,7 @@ class MainActivity : AppCompatActivity() {
         resetBar()
         updatePresUi()
         applyPresentationZoom()
-        setImmersive(true)
+        applyImmersiveMode(true)
         applySettings()
         val first = if (pageTotal > 0) page.coerceIn(1, pageTotal) else page.coerceAtLeast(1)
         binding.web.evaluateJavascript("if(window.presStart){presStart($first)}", null)
@@ -1149,7 +1149,7 @@ class MainActivity : AppCompatActivity() {
         binding.ink.clearAll()
         resetBar()
         updatePresUi()
-        setImmersive(false)
+        applyImmersiveMode(false)
         applySettings()
         binding.web.evaluateJavascript("if(window.presStop){presStop()}", null)
     }
@@ -1170,7 +1170,7 @@ class MainActivity : AppCompatActivity() {
         binding.pageIndicator.isVisible = pageTotal > 1 && (!presenting || (showPageNum && !drawing))
     }
 
-    private fun setImmersive(on: Boolean) {
+    private fun applyImmersiveMode(on: Boolean) {
         val controller = WindowCompat.getInsetsController(window, binding.root)
         if (on) {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
