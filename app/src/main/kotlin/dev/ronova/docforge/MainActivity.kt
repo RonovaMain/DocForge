@@ -132,6 +132,11 @@ class MainActivity : AppCompatActivity() {
                 override fun showError(error: Throwable) = this@MainActivity.showError(error)
 
                 override fun snack(text: String) = this@MainActivity.snack(text)
+
+                override fun pickFirmware(callback: (Uri?) -> Unit) {
+                    firmwareCallback = callback
+                    firmwarePicker.launch(arrayOf("*/*"))
+                }
             },
         )
     }
@@ -170,6 +175,15 @@ class MainActivity : AppCompatActivity() {
     private class Loaded(val doc: OpenDoc, val html: String)
 
     private class Export(val bytes: ByteArray, val name: String, val mime: String, val onSaved: (() -> Unit)? = null)
+
+    private var firmwareCallback: ((Uri?) -> Unit)? = null
+
+    private val firmwarePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val callback = firmwareCallback
+            firmwareCallback = null
+            callback?.invoke(uri)
+        }
 
     private val openPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->

@@ -12,3 +12,7 @@ build/
 *.aab
 *.jks
 *.keystore
+
+# Исходники и результат сборки фильтров печати (scripts/build-filters.sh)
+/build-drivers/
+/app/src/main/jniLibs/

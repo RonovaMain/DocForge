@@ -43,6 +43,14 @@
                 <data android:mimeType="application/vnd.oasis.opendocument.presentation" />
             </intent-filter>
 
+            <!-- Подключили USB-принтер: система предложит открыть DocForge и сразу выдаст доступ к устройству -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_printer_filter" />
+
             <!-- «Поделиться» файлом в приложение -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

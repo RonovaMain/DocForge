@@ -2,6 +2,7 @@ package dev.ronova.docforge
 
 import android.hardware.usb.UsbDevice
 import android.print.PrintAttributes
+import dev.ronova.docforge.print.DriverSpec
 
 enum class PaperSize(val label: String, val mmWidth: Int, val mmHeight: Int, val pclCode: Int, val media: PrintAttributes.MediaSize) {
     A4("A4", 210, 297, 26, PrintAttributes.MediaSize.ISO_A4),
@@ -34,6 +35,10 @@ class PrintOptions(
     val usbDevice: UsbDevice?,
     val dpi: Int,
     val pjl: Boolean,
+    /** Способ печати на USB-принтер (null — PCL 5 по умолчанию). */
+    val driver: DriverSpec? = null,
+    /** Ключ модели принтера (VID-PID): под ним хранится прошивка. */
+    val profileKey: String = "",
 ) {
     /** Параметры бумаги для системной печати и для вёрстки Office-документов. */
     fun attributes(): PrintAttributes {

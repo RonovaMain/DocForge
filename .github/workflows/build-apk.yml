@@ -52,6 +52,11 @@ jobs:
         with:
           gradle-version: 8.14.3
 
+      # Драйверы печати foo2zjs и родственные (GPL). Шаг не обязательный: не собрались — APK выйдет без них
+      - name: Build printer filters (foo2zjs family)
+        continue-on-error: true
+        run: bash scripts/build-filters.sh
+
       - name: Decode keystore
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"

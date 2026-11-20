@@ -13,8 +13,8 @@ android {
         applicationId = "dev.ronova.docforge"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.6.3"
+        versionCode = 5
+        versionName = "0.7.2"
     }
 
     // Подпись релиза включается только если заданы переменные окружения (так делает GitHub Actions).
@@ -51,6 +51,10 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // Фильтры печати (libfoo2zjs.so и др.) — исполняемые файлы: их нужно распаковать на диск, иначе Android не даст их запустить
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

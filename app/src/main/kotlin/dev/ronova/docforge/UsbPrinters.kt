@@ -14,6 +14,7 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import dev.ronova.docforge.core.DocException
+import dev.ronova.docforge.print.Ieee1284
 import java.io.Closeable
 
 /** Поиск USB-принтеров (класс 7), запрос разрешения и отправка данных через USB Host. Нужен OTG-кабель. */
@@ -38,6 +39,27 @@ class UsbPrinters(private val context: Context) {
         val label = listOfNotNull(maker, name).joinToString(" ").ifBlank { "USB-принтер" }
         return "$label (%04X:%04X)".format(device.vendorId, device.productId)
     }
+
+    /** Ключ модели для хранения прошивки: VID-PID. */
+    fun key(device: UsbDevice): String = "%04x-%04x".format(device.vendorId, device.productId)
+
+    /** Производитель и модель из строк USB-дескриптора (запасной вариант, если принтер не отдал IEEE 1284 ID). */
+    fun names(device: UsbDevice): Pair<String, String> {
+        val maker = try {
+            device.manufacturerName
+        } catch (e: Exception) {
+            null
+        }
+        val name = try {
+            device.productName
+        } catch (e: Exception) {
+            null
+        }
+        return Pair(maker ?: "", name ?: "")
+    }
+
+    /** Спрашивает у принтера IEEE 1284 Device ID (модель и языки печати). Нужно разрешение на устройство. */
+    fun identify(device: UsbDevice): Ieee1284 = open(device).use { it.deviceId() }
 
     fun requestPermission(device: UsbDevice, onResult: (Boolean) -> Unit) {
         if (manager.hasPermission(device)) {
@@ -93,6 +115,13 @@ class UsbPrinters(private val context: Context) {
         private val intf: UsbInterface,
         private val endpoint: UsbEndpoint,
     ) : Closeable {
+        /** GET_DEVICE_ID по спецификации USB Printer Class: wIndex = интерфейс << 8 | альтернативная настройка. */
+        fun deviceId(): Ieee1284 {
+            val buf = ByteArray(1024)
+            val n = connection.controlTransfer(0xA1, 0, 0, (intf.id shl 8) or intf.alternateSetting, buf, buf.size, 2000)
+            return if (n > 2) Ieee1284.parse(buf, n) else Ieee1284.empty()
+        }
+
         fun write(data: ByteArray, length: Int) {
             var offset = 0
             while (offset < length) {

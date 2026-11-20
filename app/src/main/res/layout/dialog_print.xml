@@ -201,6 +201,50 @@
             android:textSize="14sp"
             android:textStyle="bold" />
 
+            <TextView
+                android:id="@+id/driverInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/prn_detecting"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/prn_driver"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+            <Spinner
+                android:id="@+id/driverSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <LinearLayout
+                android:id="@+id/firmwareRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/firmwareStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnFirmware"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/prn_fw_pick" />
+            </LinearLayout>
+
             <Spinner
                 android:id="@+id/qualitySpinner"
                 android:layout_width="match_parent"

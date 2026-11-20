@@ -2,12 +2,14 @@ package dev.ronova.docforge
 
 import android.content.Context
 import android.hardware.usb.UsbDevice
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.print.PrintAttributes
 import android.print.PrintJob
 import android.print.PrintManager
 import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -18,6 +20,9 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dev.ronova.docforge.core.DocException
 import dev.ronova.docforge.databinding.DialogPrintBinding
+import dev.ronova.docforge.print.DriverCatalog
+import dev.ronova.docforge.print.DriverSpec
+import dev.ronova.docforge.print.Ieee1284
 import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.Executors
@@ -44,6 +49,9 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
         fun showError(error: Throwable)
 
         fun snack(text: String)
+
+        /** Выбор файла прошивки (.dl) через системный диалог; null — отмена. */
+        fun pickFirmware(callback: (Uri?) -> Unit)
     }
 
     private class Job(val source: File, val total: Int, val options: PrintOptions, val passes: List<List<Int>>, val dir: File)
@@ -52,6 +60,14 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private val devices = HashMap<Int, UsbDevice>()
+
+    /** Результат автоопределения выбранного USB-принтера: ключ модели и список способов печати (лучшие первыми). */
+    private class Detected(val device: UsbDevice, val key: String, val choices: List<DriverSpec>)
+
+    private var detected: Detected? = null
+
+    /** Принтеры, которым прошивка уже отправлена в этом запуске приложения (после выключения принтера её надо слать снова). */
+    private val firmwareSent = HashSet<String>()
     private var busy: AlertDialog? = null
     private var busyText: TextView? = null
 
@@ -95,8 +111,19 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
             b.reverseBacks.visibility = if (id == R.id.duplexBatch) View.VISIBLE else View.GONE
         }
         b.printerGroup.setOnCheckedChangeListener { _, id ->
-            b.usbSection.visibility = if (devices.containsKey(id)) View.VISIBLE else View.GONE
+            val device = devices[id]
+            b.usbSection.visibility = if (device != null) View.VISIBLE else View.GONE
+            if (device != null) detect(b, device) else detected = null
         }
+        b.driverSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                updateFirmwareRow(b)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+            }
+        }
+        b.btnFirmware.setOnClickListener { pickFirmware(b) }
         b.btnFindPrinters.setOnClickListener { fillPrinters(b) }
         fillPrinters(b)
     }
@@ -130,6 +157,104 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
         }
     }
 
+    // ------------------------------------------------------------------ автоопределение принтера и драйвера
+
+    /** Спрашивает у принтера IEEE 1284 Device ID и подбирает способ печати. Нужно разрешение на USB-устройство. */
+    private fun detect(b: DialogPrintBinding, device: UsbDevice) {
+        detected = null
+        b.driverInfo.text = activity.getString(R.string.prn_detecting)
+        b.driverSpinner.adapter = spinnerAdapter(emptyList())
+        updateFirmwareRow(b)
+        usb.requestPermission(device) { granted ->
+            if (!granted) {
+                b.driverInfo.text = activity.getString(R.string.prn_no_permission)
+            } else {
+                executor.execute {
+                    val id = try {
+                        usb.identify(device)
+                    } catch (e: Throwable) {
+                        Ieee1284.empty()
+                    }
+                    activity.runOnUiThread { applyDetection(b, device, id) }
+                }
+            }
+        }
+    }
+
+    private fun applyDetection(b: DialogPrintBinding, device: UsbDevice, id: Ieee1284) {
+        // пока шёл опрос, человек мог выбрать другой принтер или закрыть окно
+        if (devices[b.printerGroup.checkedRadioButtonId] != device) return
+        val names = usb.names(device)
+        val mfg = id.manufacturer().ifEmpty { names.first }
+        val model = id.model().ifEmpty { names.second }
+        val matches = DriverCatalog.select(mfg, model, id.commands())
+        val ordered = ArrayList<DriverSpec>()
+        for (m in matches) ordered.add(m.spec)
+        for (s in DriverCatalog.all()) if (!ordered.contains(s)) ordered.add(s)
+        detected = Detected(device, usb.key(device), ordered)
+
+        val labels = ordered.map { spec ->
+            if (Drivers.isAvailable(activity, spec)) spec.title else spec.title + activity.getString(R.string.prn_not_built)
+        }
+        b.driverSpinner.adapter = spinnerAdapter(labels)
+        val pick = matches.firstOrNull { Drivers.isAvailable(activity, it.spec) }
+        b.driverSpinner.setSelection(if (pick != null) ordered.indexOf(pick.spec) else 0)
+
+        val name = listOf(mfg, model).filter { it.isNotEmpty() }.joinToString(" ").ifEmpty { usb.title(device) }
+        val info = StringBuilder(activity.getString(R.string.prn_detected, name))
+        if (pick != null) info.append("\n").append(activity.getString(R.string.prn_chosen, pick.spec.title, pick.reason))
+        val unsupported = DriverCatalog.unsupportedHint(id.commands())
+        if (unsupported != null) info.append("\n").append(activity.getString(R.string.prn_unsupported, unsupported))
+        if (id.isEmpty()) info.append("\n").append(activity.getString(R.string.prn_no_id))
+        b.driverInfo.text = info
+        updateFirmwareRow(b)
+    }
+
+    private fun chosenSpec(b: DialogPrintBinding): DriverSpec? =
+        detected?.choices?.getOrNull(b.driverSpinner.selectedItemPosition)
+
+    private fun updateFirmwareRow(b: DialogPrintBinding) {
+        val key = detected?.key
+        val spec = chosenSpec(b)
+        if (key == null || spec == null || !spec.needsFirmware) {
+            b.firmwareRow.visibility = View.GONE
+            return
+        }
+        b.firmwareRow.visibility = View.VISIBLE
+        val have = Drivers.firmwareFile(activity, key).exists()
+        b.firmwareStatus.text = activity.getString(if (have) R.string.prn_fw_loaded else R.string.prn_fw_none)
+    }
+
+    private fun pickFirmware(b: DialogPrintBinding) {
+        val key = detected?.key ?: return
+        host.pickFirmware { uri ->
+            if (uri != null) {
+                executor.execute {
+                    val ok = try {
+                        val dest = Drivers.firmwareFile(activity, key)
+                        dest.parentFile?.mkdirs()
+                        val input = activity.contentResolver.openInputStream(uri)
+                        if (input == null) {
+                            false
+                        } else {
+                            input.use { src -> dest.outputStream().use { dst -> src.copyTo(dst) } }
+                            val good = dest.length() in 1..MAX_FIRMWARE_BYTES
+                            if (!good) dest.delete()
+                            good
+                        }
+                    } catch (e: Exception) {
+                        false
+                    }
+                    activity.runOnUiThread {
+                        if (ok) firmwareSent.removeAll { it.startsWith("$key@") }
+                        host.snack(activity.getString(if (ok) R.string.prn_fw_saved else R.string.prn_fw_failed))
+                        updateFirmwareRow(b)
+                    }
+                }
+            }
+        }
+    }
+
     private fun readForm(b: DialogPrintBinding): PrintOptions? {
         val checkedPrinter = b.printerGroup.checkedRadioButtonId
         val device = devices[checkedPrinter]
@@ -153,6 +278,11 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
             else -> DuplexMode.OFF
         }
         val margins = intArrayOf(0, 200, 400, 800)
+        val spec = if (device != null) (chosenSpec(b) ?: DriverCatalog.byId("pcl5")) else null
+        if (spec != null && !Drivers.isAvailable(activity, spec)) {
+            host.snack(activity.getString(R.string.prn_driver_missing))
+            return null
+        }
         return PrintOptions(
             paper = PaperSize.values()[b.paperSpinner.selectedItemPosition],
             orientation = orientation,
@@ -165,6 +295,8 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
             usbDevice = device,
             dpi = if (b.qualitySpinner.selectedItemPosition == 0) 150 else 300,
             pjl = b.pjlCheck.isChecked,
+            driver = spec,
+            profileKey = detected?.key ?: "",
         )
     }
 
@@ -271,15 +403,24 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
 
     private fun printUsb(job: Job, index: Int, device: UsbDevice) {
         val o = job.options
+        val spec = o.driver ?: DriverCatalog.byId("pcl5")!!
+        val driver = Drivers.create(activity, spec)
+        if (driver == null) {
+            host.snack(activity.getString(R.string.prn_driver_missing))
+            return
+        }
         cancelled = false
         val label = passLabel(job, index)
         showBusy(label, true)
         background(
             task = {
-                val file = passFile(job, index, o.rotateMode())
+                // PDF-принтеры сами раскладывают страницы, поворот не нужен
+                val rotate = if (spec.kind == DriverSpec.Kind.PDF) RotateMode.NONE else o.rotateMode()
+                val file = passFile(job, index, rotate)
                 val copies = if (o.duplex == DuplexMode.OFF) o.copies else 1
                 usb.open(device).use { session ->
-                    PclPrinter.print(
+                    uploadFirmware(session, spec, o, device)
+                    driver.print(
                         file,
                         o,
                         copies,
@@ -298,6 +439,20 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
                 nextPass(job, index + 1)
             },
         )
+    }
+
+    /** Принтерам на хост-драйвере (HP LaserJet 1018/1020 и др.) после включения нужно отправить файл прошивки. */
+    private fun uploadFirmware(session: UsbPrinters.Session, spec: DriverSpec, o: PrintOptions, device: UsbDevice) {
+        if (!spec.needsFirmware || o.profileKey.isEmpty()) return
+        val sentKey = o.profileKey + "@" + device.deviceName
+        if (firmwareSent.contains(sentKey)) return
+        val fw = Drivers.firmwareFile(activity, o.profileKey)
+        if (!fw.exists()) return
+        val data = fw.readBytes()
+        session.write(data, data.size)
+        // время на запуск прошивки подобрано с запасом и не проверялось на конкретных моделях
+        Thread.sleep(FIRMWARE_WAIT_MS)
+        firmwareSent.add(sentKey)
     }
 
     private fun printSystem(job: Job, index: Int) {
@@ -326,6 +481,11 @@ class PrintFlow(private val activity: AppCompatActivity, private val host: Host)
                 }
             },
         )
+    }
+
+    private companion object {
+        const val MAX_FIRMWARE_BYTES = 4L * 1024 * 1024
+        const val FIRMWARE_WAIT_MS = 4000L
     }
 
     private fun passLabel(job: Job, index: Int): String =

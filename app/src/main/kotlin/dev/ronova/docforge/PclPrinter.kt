@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
  * Его понимают многие лазерные принтеры (HP LaserJet и совместимые, Brother, Kyocera, Lexmark, OKI, Ricoh…).
  * Принтеры только с «хост-драйвером» (GDI, SPL, CAPT, ZJS) PCL не знают — для них этот способ не подходит.
  */
-object PclPrinter {
+object PclPrinter : PrintDriver {
     private const val ESC = "\u001B"
     private const val BAND_ROWS = 256
 
@@ -37,7 +37,7 @@ object PclPrinter {
      * Печатает все страницы [file] (готовый PDF) [copies] раз. Данные отдаются порциями в [write];
      * [progress] получает (напечатано, всего); [cancelled] позволяет прервать печать между полосами.
      */
-    fun print(
+    override fun print(
         file: File,
         options: PrintOptions,
         copies: Int,
