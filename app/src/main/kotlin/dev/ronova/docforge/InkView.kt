@@ -52,6 +52,26 @@ class InkView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     var penColor: Int = 0xFFF44336.toInt()
     var markerColor: Int = 0xFFFFEB3B.toInt()
 
+    /** Толщина (1..[MAX_LEVEL]) отдельно для ручки, маркера и ластика; 4 — обычная. */
+    var penLevel: Int = DEFAULT_LEVEL
+    var markerLevel: Int = DEFAULT_LEVEL
+    var eraserLevel: Int = DEFAULT_LEVEL
+
+    fun currentLevel(): Int = when (tool) {
+        Tool.PEN -> penLevel
+        Tool.HIGHLIGHTER -> markerLevel
+        Tool.ERASER -> eraserLevel
+    }
+
+    fun setCurrentLevel(level: Int) {
+        val value = level.coerceIn(1, MAX_LEVEL)
+        when (tool) {
+            Tool.PEN -> penLevel = value
+            Tool.HIGHLIGHTER -> markerLevel = value
+            Tool.ERASER -> eraserLevel = value
+        }
+    }
+
     /** Пока false, слой только показывает штрихи и пропускает касания дальше (к WebView). */
     var drawingEnabled: Boolean = false
 
@@ -201,9 +221,9 @@ class InkView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
             return
         }
         val stroke = if (tool == Tool.HIGHLIGHTER) {
-            Stroke(withAlpha(markerColor, MARKER_ALPHA), MARKER_WIDTH)
+            Stroke(withAlpha(markerColor, MARKER_ALPHA), MARKER_WIDTH * markerLevel / DEFAULT_LEVEL)
         } else {
-            Stroke(withAlpha(penColor, 255), PEN_WIDTH)
+            Stroke(withAlpha(penColor, 255), PEN_WIDTH * penLevel / DEFAULT_LEVEL)
         }
         stroke.points.add(norm(x, pageRect.left, pageRect.width()))
         stroke.points.add(norm(y, pageRect.top, pageRect.height()))
@@ -248,7 +268,7 @@ class InkView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     private fun eraseAt(x: Float, y: Float) {
         val list = strokes[page] ?: return
         val removed = erased ?: return
-        val radius = ERASER_RADIUS * resources.displayMetrics.density
+        val radius = ERASER_RADIUS * eraserLevel / DEFAULT_LEVEL * resources.displayMetrics.density
         var changed = false
         for (i in list.indices.reversed()) {
             if (touches(list[i], x, y, radius)) {
@@ -294,11 +314,13 @@ class InkView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
 
-    private companion object {
-        const val PEN_WIDTH = 0.0045f
-        const val MARKER_WIDTH = 0.028f
-        const val MARKER_ALPHA = 0x66
-        const val MIN_STEP = 1.5f
-        const val ERASER_RADIUS = 14f
+    companion object {
+        const val MAX_LEVEL = 12
+        const val DEFAULT_LEVEL = 4
+        private const val PEN_WIDTH = 0.0045f
+        private const val MARKER_WIDTH = 0.028f
+        private const val MARKER_ALPHA = 0x66
+        private const val MIN_STEP = 1.5f
+        private const val ERASER_RADIUS = 14f
     }
 }

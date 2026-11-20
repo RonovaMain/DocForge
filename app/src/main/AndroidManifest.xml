@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Разрешения не нужны: файлы открываются и сохраняются через системные диалоги (SAF) -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <application
         android:name=".DocForgeApp"
         android:allowBackup="false"

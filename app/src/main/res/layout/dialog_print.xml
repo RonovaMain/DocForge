@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="0dp"
+            android:text="@string/prn_section_printer"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/printerGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <RadioButton
+                android:id="@+id/printerSystem"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_system" android:checked="true" />
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/btnFindPrinters"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/prn_find" />
+
+        <TextView
+            android:id="@+id/printerHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/prn_hint"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/prn_section_pages"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/pagesGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <RadioButton
+                android:id="@+id/pagesAll"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_pages_all" android:checked="true" />
+            <RadioButton
+                android:id="@+id/pagesCurrent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_pages_current" />
+            <RadioButton
+                android:id="@+id/pagesRange"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_pages_range" />
+        </RadioGroup>
+
+        <EditText
+            android:id="@+id/rangeInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:hint="@string/prn_range_hint"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:singleLine="true" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/prn_section_paper"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/paperSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <RadioGroup
+            android:id="@+id/orientGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <RadioButton
+                android:id="@+id/orientAuto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_orient_auto" android:checked="true" />
+            <RadioButton
+                android:id="@+id/orientPortrait"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_orient_portrait" />
+            <RadioButton
+                android:id="@+id/orientLandscape"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_orient_landscape" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/prn_margins"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp" />
+
+        <Spinner
+            android:id="@+id/marginSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/prn_copies"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/copiesInput"
+            android:layout_width="96dp"
+            android:layout_height="wrap_content"
+            android:importantForAutofill="no"
+            android:inputType="number"
+            android:maxLength="2"
+            android:text="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/prn_section_duplex"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/duplexGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <RadioButton
+                android:id="@+id/duplexOff"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_duplex_off" android:checked="true" />
+            <RadioButton
+                android:id="@+id/duplexBatch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_duplex_batch" />
+            <RadioButton
+                android:id="@+id/duplexSheet"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_duplex_sheet" />
+        </RadioGroup>
+
+        <CheckBox
+            android:id="@+id/reverseBacks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/prn_reverse"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/usbSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/prn_section_usb"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/qualitySpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <CheckBox
+                android:id="@+id/pjlCheck"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_pjl" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/prn_usb_note"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

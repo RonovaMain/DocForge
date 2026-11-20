@@ -2,11 +2,13 @@ package dev.ronova.docforge
 
 import android.annotation.SuppressLint
 import android.graphics.Color
+import android.print.WebPdfWriter
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.widget.SeekBar
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -85,6 +87,54 @@ class MainActivity : AppCompatActivity() {
     private var pdfHits: List<PdfTools.Hit> = emptyList()
     private var pdfHitIndex = -1
     private var pendingExport: Export? = null
+
+    private val printFlow by lazy {
+        PrintFlow(
+            this,
+            object : PrintFlow.Host {
+                override val docName: String get() = doc?.let { baseName(it) } ?: "DocForge"
+                override val pdfFile: File? get() = doc?.pdf?.file
+                override val currentPage: Int get() = curPage
+
+                override fun renderToPdf(attributes: PrintAttributes, out: File, callback: (String?) -> Unit) {
+                    val d = doc
+                    if (d == null) {
+                        callback("no document")
+                        return
+                    }
+                    // в тёмной теме документ инвертирован — для бумаги возвращаем светлый вид
+                    binding.web.evaluateJavascript("if(window.setNight){setNight(false)}", null)
+                    val adapter = binding.web.createPrintDocumentAdapter(baseName(d))
+                    WebPdfWriter.write(
+                        adapter,
+                        attributes,
+                        out,
+                        object : WebPdfWriter.Callback {
+                            override fun onSuccess() {
+                                runOnUiThread {
+                                    applySettings()
+                                    callback(null)
+                                }
+                            }
+
+                            override fun onError(message: String?) {
+                                runOnUiThread {
+                                    applySettings()
+                                    callback(message ?: "error")
+                                }
+                            }
+                        },
+                    )
+                }
+
+                override fun systemPrintFallback() = printDocument()
+
+                override fun showError(error: Throwable) = this@MainActivity.showError(error)
+
+                override fun snack(text: String) = this@MainActivity.snack(text)
+            },
+        )
+    }
 
     // верхняя панель, скрываемая при прокрутке
     private var barHidden = false
@@ -241,7 +291,7 @@ class MainActivity : AppCompatActivity() {
         menu.findItem(R.id.action_present).isVisible = canPresent() && pageTotal >= 1
         menu.findItem(R.id.action_save_images).isVisible = d != null
         menu.findItem(R.id.action_share).isVisible = d != null
-        menu.findItem(R.id.action_print).isVisible = d != null && d.format != DocFormat.PDF
+        menu.findItem(R.id.action_print).isVisible = d != null
         menu.findItem(R.id.action_close).isVisible = d != null
         return super.onPrepareOptionsMenu(menu)
     }
@@ -261,7 +311,7 @@ class MainActivity : AppCompatActivity() {
             R.id.action_present -> showPresentDialog()
             R.id.action_save_images -> saveAllImages()
             R.id.action_share -> share()
-            R.id.action_print -> printDocument()
+            R.id.action_print -> printFlow.show()
             R.id.action_settings -> startActivity(Intent(this, SettingsActivity::class.java))
             R.id.action_close -> confirmDiscard { closeDocument() }
             else -> return super.onOptionsItemSelected(item)
@@ -1082,7 +1132,7 @@ class MainActivity : AppCompatActivity() {
         resetBar()
         updatePresUi()
         applyPresentationZoom()
-        applyImmersiveMode(true)
+        setImmersive(true)
         applySettings()
         val first = if (pageTotal > 0) page.coerceIn(1, pageTotal) else page.coerceAtLeast(1)
         binding.web.evaluateJavascript("if(window.presStart){presStart($first)}", null)
@@ -1099,7 +1149,7 @@ class MainActivity : AppCompatActivity() {
         binding.ink.clearAll()
         resetBar()
         updatePresUi()
-        applyImmersiveMode(false)
+        setImmersive(false)
         applySettings()
         binding.web.evaluateJavascript("if(window.presStop){presStop()}", null)
     }
@@ -1120,7 +1170,7 @@ class MainActivity : AppCompatActivity() {
         binding.pageIndicator.isVisible = pageTotal > 1 && (!presenting || (showPageNum && !drawing))
     }
 
-    private fun applyImmersiveMode(on: Boolean) {
+    private fun setImmersive(on: Boolean) {
         val controller = WindowCompat.getInsetsController(window, binding.root)
         if (on) {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -1256,6 +1306,18 @@ class MainActivity : AppCompatActivity() {
         binding.drawPrev.setOnClickListener { presGo(-1) }
         binding.drawNext.setOnClickListener { presGo(1) }
         binding.ink.onChanged = { refreshDrawUi() }
+        binding.drawSize.max = InkView.MAX_LEVEL - 1
+        binding.drawSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                binding.ink.setCurrentLevel(progress + 1)
+                binding.drawSizeLabel.text = (progress + 1).toString()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
         refreshDrawUi()
     }
 
@@ -1302,6 +1364,9 @@ class MainActivity : AppCompatActivity() {
             swatch.background = dot
             swatch.alpha = if (erasing) 0.35f else 1f
         }
+        val level = ink.currentLevel()
+        binding.drawSize.progress = level - 1
+        binding.drawSizeLabel.text = level.toString()
         binding.toolUndo.isEnabled = ink.canUndo()
         binding.toolUndo.alpha = if (ink.canUndo()) 1f else 0.35f
         binding.toolClear.isEnabled = ink.hasInkOnPage()
