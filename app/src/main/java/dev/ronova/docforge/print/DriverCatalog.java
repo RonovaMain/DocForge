@@ -46,9 +46,9 @@ public final class DriverCatalog {
             "Принтеры с PostScript 2/3"));
         add(new DriverSpec("pdf", "PDF напрямую", DriverSpec.Kind.PDF, null, 0, null, false,
             "Принтеры, которые сами читают PDF"));
-        add(new DriverSpec("foo2zjs", "foo2zjs (ZjStream: HP LaserJet 1000/1018/1020/1022, Minolta)", DriverSpec.Kind.FILTER,
+        add(new DriverSpec("foo2zjs", "foo2zjs (ZjStream: HP LaserJet 1000/1005/1018/1020/1022, P1102/P1566/P1606, CP1025, P2035, Minolta)", DriverSpec.Kind.FILTER,
             "foo2zjs", 600, ARGS_COMMON, true, "Нужен файл прошивки .dl, загружается в принтер после включения"));
-        add(new DriverSpec("foo2xqx", "foo2xqx (XQX: HP LaserJet P1005–P1008, P1505, P11xx, P15xx, P16xx)", DriverSpec.Kind.FILTER,
+        add(new DriverSpec("foo2xqx", "foo2xqx (XQX: HP LaserJet P1005–P1008, P1505, P2014, M1005/M1120/M1212)", DriverSpec.Kind.FILTER,
             "foo2xqx", 600, ARGS_COMMON, true, "Для части моделей нужен файл прошивки .dl"));
         add(new DriverSpec("foo2qpdl", "foo2qpdl (QPDL/SPL: Samsung ML/CLP/SCX, Xerox Phaser 31xx)", DriverSpec.Kind.FILTER,
             "foo2qpdl", 600, ARGS_COMMON, false, "Чёрно-белая печать"));
@@ -74,9 +74,12 @@ public final class DriverCatalog {
 
     static {
         String hp = "(hp|hewlett)";
-        RULES.add(new Rule("foo2zjs", hp, "laserjet\\s+(1000|1018|1020|1022)\\b"));
+        // LaserJet 1010/1012/1015 — не foo2zjs: они понимают урезанный растровый PCL, его печатает встроенный PCL 5
+        RULES.add(new Rule("pcl5", hp, "laserjet\\s+(1010|1012|1015)\\b"));
+        RULES.add(new Rule("foo2zjs", hp, "laserjet\\s+(1000|1005|1018|1020|1022)\\b"));
+        RULES.add(new Rule("foo2zjs", hp, "\\b(p1102w?|p1566|p1606|p2035|cp1025|m1319)"));
         RULES.add(new Rule("foo2zjs", "(minolta|konica|qms)", "magicolor\\s+(2200|2300)\\s*dl"));
-        RULES.add(new Rule("foo2xqx", hp, "\\b(p100[5-8]|p1505|p110[26]|p1566|p1606|m1005|m1536)"));
+        RULES.add(new Rule("foo2xqx", hp, "\\b(p100[5-8]|p1505|p2014|m1005|m1120|m1212)"));
         RULES.add(new Rule("foo2qpdl", "(samsung|xerox)",
             "\\b(clp-?3\\d\\d|ml-?(1610|1640|1660|1665|1860|2010|2240|2250|2510|2570|2571|2850|2851)|scx-?4[23]\\d\\d|phaser\\s+31(17|22|24|25|30|40|55|60))"));
         RULES.add(new Rule("foo2slx", "xerox", "phaser\\s+6110"));
@@ -113,6 +116,8 @@ public final class DriverCatalog {
             else if (c.equals("PDF")) offer(best, "pdf", 75, "принтер заявляет чтение PDF");
             else if (c.startsWith("POSTSCRIPT") || c.equals("PS") || c.equals("PS2") || c.equals("PS3")) {
                 offer(best, "ps", 70, "принтер заявляет PostScript");
+            } else if (c.equals("DW-PCL") || c.contains("FASTRASTER")) {
+                offer(best, "pcl5", 65, "принтер заявляет растровый PCL (" + c + ") — так устроены HP LaserJet 1010/1012/1015");
             } else if (c.equals("PCL") || c.startsWith("PCL5") || c.equals("PCL3")) {
                 offer(best, "pcl5", 60, "принтер заявляет PCL");
             } else if (c.startsWith("PCL6") || c.equals("PCLXL") || c.equals("PCL XL")) {

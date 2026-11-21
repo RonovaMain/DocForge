@@ -23,7 +23,16 @@ public class DriverCatalogTest {
         assertEquals("foo2zjs", top("Hewlett-Packard", "HP LaserJet 1018", cmds("ACL", "PJL")));
         assertEquals("foo2zjs", top("HP", "LaserJet 1020", cmds()));
         assertEquals("foo2xqx", top("Hewlett-Packard", "HP LaserJet P1005", cmds()));
-        assertEquals("foo2xqx", top("HP", "LaserJet Professional P1102", cmds()));
+        assertEquals("foo2zjs", top("HP", "LaserJet Professional P1102", cmds()));
+        assertEquals("foo2xqx", top("HP", "LaserJet M1005 MFP", cmds()));
+    }
+
+    @Test
+    public void laserJet1010FamilyUsesBuiltInPcl() {
+        assertEquals("pcl5", top("Hewlett-Packard", "hp LaserJet 1010", cmds("PJL", "MLC", "BIDI-ECP", "DW-PCL")));
+        assertEquals("pcl5", top("HP", "LaserJet 1012", cmds()));
+        assertEquals("pcl5", top("HP", "LaserJet 1015", cmds()));
+        assertEquals("pcl5", top("Unknown", "Unknown", cmds("DW-PCL")));
     }
 
     @Test
