@@ -63,7 +63,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchKeepOn.setOnCheckedChangeListener { _, checked -> settings.keepScreenOn = checked }
 
         binding.aboutVersion.text = getString(R.string.about_version, versionName())
-        binding.btnGithub.setOnClickListener { openGithub() }
+        binding.btnGithub.setOnClickListener { openLink(GITHUB_URL) }
+        binding.btnDonate.setOnClickListener { openLink(DONATE_URL) }
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -79,9 +80,9 @@ class SettingsActivity : AppCompatActivity() {
             ""
         }
 
-    private fun openGithub() {
+    private fun openLink(url: String) {
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_URL)))
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (e: ActivityNotFoundException) {
             Snackbar.make(binding.root, getString(R.string.err_no_browser), Snackbar.LENGTH_SHORT).show()
         }
@@ -90,5 +91,8 @@ class SettingsActivity : AppCompatActivity() {
     private companion object {
         /** Профиль автора на GitHub. */
         const val GITHUB_URL = "https://github.com/RonovaMain"
+
+        /** Поддержка проекта на Boosty. */
+        const val DONATE_URL = "https://boosty.to/ronovamain/donate"
     }
 }

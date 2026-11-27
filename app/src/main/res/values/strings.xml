@@ -76,6 +76,7 @@
     <string name="about_author">Создатель: RonovaDev</string>
     <string name="about_version">Версия %1$s</string>
     <string name="about_github">Мой GitHub</string>
+    <string name="about_donate">Поддержать проект</string>
     <string name="err_no_browser">Не найдено приложение, чтобы открыть ссылку</string>
 
     <string name="menu_present">Режим презентации</string>
